@@ -2,13 +2,16 @@ import React from 'react';
 import { useMeeting } from '../context/MeetingContext';
 import { QRCodeSVG } from 'qrcode.react';
 import { TimerRing } from './TimerRing';
-import { Sparkles, Users, QrCode, Hourglass } from 'lucide-react';
+import { Sparkles, Users, QrCode, Hourglass, Mic, ArrowRight, ListOrdered } from 'lucide-react';
 import { getJoinUrl } from '../utils/joinUrl';
 
 export const StageView: React.FC = () => {
   const { roomName, roomCode, activeSpeaker, speakerBuffer, queue } = useMeeting();
 
   const joinUrl = getJoinUrl(roomCode);
+  const upNext = speakerBuffer?.queueItem ?? queue[0] ?? null;
+  const remainingQueue = speakerBuffer ? queue : queue.slice(upNext ? 1 : 0);
+  const waitingCount = remainingQueue.length + (upNext ? 1 : 0);
 
   return (
     <div className="min-h-[85vh] flex flex-col justify-between p-0 sm:p-4 lg:p-8 space-y-4 sm:space-y-8 max-w-7xl mx-auto">
@@ -116,49 +119,129 @@ export const StageView: React.FC = () => {
           )}
         </div>
 
-        {/* UPCOMING QUEUE + CORNER QR CODE SIDEBAR */}
+        {/* SPEAKING ORDER + CORNER QR CODE SIDEBAR */}
         <div className="lg:col-span-4 flex flex-col gap-6 justify-between">
-          <div className="glass-panel p-6 rounded-3xl border border-slate-800 flex-1 flex flex-col">
-            <h3 className="text-base font-bold text-white mb-4 flex items-center justify-between">
-              <span>Next Up ({queue.length})</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            </h3>
+          <div className="glass-panel p-4 sm:p-5 rounded-3xl border border-slate-800 flex-1 flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-3 px-1" aria-live="polite">
+              <h2 className="text-sm font-bold text-white">Speaking Order</h2>
+              <span className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-bold text-indigo-300">
+                {waitingCount} {waitingCount === 1 ? 'person' : 'people'} waiting to speak
+              </span>
+            </div>
 
-            {queue.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-500 text-xs">
-                No speakers currently in queue.
-              </div>
-            ) : (
-              <div className="space-y-3 flex-1 overflow-y-auto max-h-[340px] pr-1">
-                {queue.map((item, idx) => (
-                  <div
-                    key={item.id}
-                    className={`flex items-center justify-between p-3.5 rounded-2xl border ${
-                      idx === 0
-                        ? 'bg-gradient-to-r from-indigo-950/80 to-purple-950/80 border-indigo-500/50 text-white'
-                        : 'bg-slate-900/60 border-slate-800 text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-6 text-center font-mono font-bold text-xs text-slate-400">
-                        #{idx + 1}
-                      </span>
-                      <span className="text-2xl shrink-0">{item.participant.avatar}</span>
-                      <div className="truncate">
-                        <h4 className="font-bold text-sm truncate">{item.participant.name}</h4>
-                        {item.note && <p className="text-xs text-slate-400 truncate italic">{item.note}</p>}
-                      </div>
-                    </div>
+            <section
+              className="rounded-2xl border-2 border-emerald-500/60 bg-emerald-950/30 p-4 shadow-lg shadow-emerald-950/30"
+              aria-labelledby="speaking-now-heading"
+              aria-live="polite"
+            >
+              <h3
+                id="speaking-now-heading"
+                className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-emerald-300"
+              >
+                <span className="relative flex h-2.5 w-2.5">
+                  {activeSpeaker && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                </span>
+                <Mic className="h-4 w-4" /> Speaking Now
+              </h3>
 
-                    {idx === 0 && (
-                      <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-[10px] font-bold uppercase tracking-wider shrink-0">
-                        Up Next
-                      </span>
+              {activeSpeaker ? (
+                <div className="flex items-center gap-3">
+                  <span className="shrink-0 rounded-xl border border-emerald-500/30 bg-slate-950/70 p-2 text-3xl">
+                    {activeSpeaker.queueItem.participant.avatar}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-black text-white">
+                      {activeSpeaker.queueItem.participant.name}
+                    </p>
+                    {activeSpeaker.queueItem.note && (
+                      <p className="truncate text-xs italic text-slate-300">{activeSpeaker.queueItem.note}</p>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 text-slate-300">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700 bg-slate-900">
+                    <Mic className="h-5 w-5 text-slate-500" />
+                  </span>
+                  <div>
+                    <p className="font-bold text-white">No one is speaking</p>
+                    <p className="text-xs text-slate-400">
+                      {speakerBuffer ? 'The next speaker is getting ready.' : 'The floor is currently open.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section
+              className="rounded-2xl border-2 border-amber-500/60 bg-amber-950/25 p-4"
+              aria-labelledby="up-next-heading"
+              aria-live="polite"
+            >
+              <h3
+                id="up-next-heading"
+                className="mb-3 flex items-center justify-between gap-2 text-xs font-black uppercase tracking-[0.18em] text-amber-300"
+              >
+                <span className="flex items-center gap-2">
+                  <ArrowRight className="h-4 w-4" /> {speakerBuffer ? 'Starting Next' : 'Up Next'}
+                </span>
+                {speakerBuffer && (
+                  <span className="rounded-full bg-amber-500/20 px-2 py-0.5 font-mono text-[11px] tracking-normal">
+                    {speakerBuffer.remainingBufferSeconds}s
+                  </span>
+                )}
+              </h3>
+
+              {upNext ? (
+                <div className="flex items-center gap-3">
+                  <span className="w-6 shrink-0 text-center font-mono text-xs font-bold text-amber-300">
+                    #1
+                  </span>
+                  <span className="shrink-0 rounded-xl border border-amber-500/30 bg-slate-950/70 p-2 text-3xl">
+                    {upNext.participant.avatar}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-extrabold text-white">{upNext.participant.name}</p>
+                    {upNext.note && <p className="truncate text-xs italic text-slate-300">{upNext.note}</p>}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Waiting for someone to raise their hand.</p>
+              )}
+            </section>
+
+            <section className="flex min-h-0 flex-1 flex-col" aria-labelledby="queue-heading">
+              <h3 id="queue-heading" className="mb-3 flex items-center justify-between text-sm font-bold text-white">
+                <span className="flex items-center gap-2">
+                  <ListOrdered className="h-4 w-4 text-indigo-400" /> Later in Queue
+                </span>
+              </h3>
+
+              {remainingQueue.length === 0 ? (
+                <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-slate-800 p-4 text-center text-xs text-slate-500">
+                  No additional speakers waiting.
+                </div>
+              ) : (
+                <div className="max-h-[250px] flex-1 space-y-2 overflow-y-auto pr-1">
+                  {remainingQueue.map((item, idx) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-3 text-slate-300"
+                    >
+                      <span className="w-6 shrink-0 text-center font-mono text-xs font-bold text-slate-400">
+                        #{idx + 2}
+                      </span>
+                      <span className="shrink-0 text-2xl">{item.participant.avatar}</span>
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-bold">{item.participant.name}</h4>
+                        {item.note && <p className="truncate text-xs italic text-slate-400">{item.note}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
 
           <div className="glass-panel p-5 rounded-3xl border border-indigo-500/20 flex items-center gap-4">

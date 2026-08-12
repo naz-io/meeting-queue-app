@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useMeeting } from '../context/MeetingContext';
 import { Hand, HandMetal, CheckCircle2, Clock, Sparkles, MessageSquare, AlertCircle, Hourglass, Mic } from 'lucide-react';
 import { TimerRing } from './TimerRing';
@@ -12,6 +12,7 @@ export const ParticipantView: React.FC = () => {
     queue,
     activeSpeaker,
     speakerBuffer,
+    settings,
     raiseHand,
     lowerHand,
     isUserInQueue,
@@ -22,8 +23,15 @@ export const ParticipantView: React.FC = () => {
   } = useMeeting();
 
   const [topicNote, setTopicNote] = useState('');
+  const [, setClockTick] = useState(0);
   const isCurrentActiveSpeaker = activeSpeaker?.queueItem.participant.id === currentUserId;
   const isCurrentBufferSpeaker = speakerBuffer?.queueItem.participant.id === currentUserId;
+
+  useEffect(() => {
+    if (!isUserInQueue) return;
+    const interval = window.setInterval(() => setClockTick((tick) => tick + 1), 15_000);
+    return () => window.clearInterval(interval);
+  }, [isUserInQueue]);
 
   const totalPreviousSpokenSecs = getParticipantTotalSpokenSeconds(currentUserId, currentUserName);
   const previousTurns = getParticipantTurnCount(currentUserId, currentUserName);
@@ -37,7 +45,30 @@ export const ParticipantView: React.FC = () => {
     setTopicNote('');
   };
 
-  const estimatedWaitMinutes = userQueuePosition > 1 ? (userQueuePosition - 1) * 2 : 0;
+  const speakersAhead = isUserInQueue ? queue.slice(0, Math.max(0, userQueuePosition - 1)) : [];
+  const estimatedWaitSeconds = isUserInQueue
+    ? (activeSpeaker?.remainingSeconds ?? 0)
+      + (speakerBuffer
+        ? speakerBuffer.remainingBufferSeconds + speakerBuffer.allocatedSpeakerSeconds
+        : 0)
+      + speakersAhead.reduce((total, item) => total + item.allocatedSeconds, 0)
+      + settings.bufferSeconds * userQueuePosition
+    : 0;
+
+  const formatEstimatedWait = (totalSeconds: number) => {
+    if (totalSeconds < 60) return 'less than 1 min';
+    const totalMinutes = Math.ceil(totalSeconds / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `about ${totalMinutes} min`;
+    if (minutes === 0) return `about ${hours} hr`;
+    return `about ${hours} hr ${minutes} min`;
+  };
+
+  const estimatedTurnTime = new Date(Date.now() + estimatedWaitSeconds * 1000).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -154,11 +185,11 @@ export const ParticipantView: React.FC = () => {
                   #{userQueuePosition} <span className="text-lg font-normal text-slate-400">in line</span>
                 </div>
 
-                <p className="text-xs text-slate-300 flex items-center justify-center gap-1.5 mt-2">
+                <p className="text-xs text-slate-300 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 mt-2">
                   <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                  {estimatedWaitMinutes > 0
-                    ? `Estimated wait: ~${estimatedWaitMinutes} mins`
-                    : 'You are next in line! Get ready.'}
+                  <span>Estimated turn in {formatEstimatedWait(estimatedWaitSeconds)}</span>
+                  <span className="text-slate-500" aria-hidden="true">•</span>
+                  <span>around {estimatedTurnTime}</span>
                 </p>
               </div>
 

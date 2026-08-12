@@ -385,16 +385,40 @@ export class MeetingStore {
 
   private loadDemo(room: RoomRecord) {
     const stamp = now();
-    room.state.queue = [
+    const demoParticipants = [
       ['Dr. Evelyn Reed', '👩‍🔬', 'Project Q3 Budget Allocation', 120],
       ['Marcus Chen', '👨‍💻', 'AI Pipeline Updates & Architecture', 180],
       ['Sarah Jenkins', '👩‍💼', 'Customer Feedback Summary', 120],
-    ].map(([name, avatar, note, seconds], index) => ({
+      ['Omar Hassan', '👨‍💼', 'Volunteer Schedule for Saturday', 90],
+      ['Priya Patel', '👩‍💻', 'Accessibility Improvements', 120],
+      ['Daniel Kim', '👨‍🎨', 'New Event Signage', 60],
+      ['Sofia Martinez', '🦸‍♀️', 'Community Outreach Update', 150],
+      ['James Wilson', '🦁', 'Facilities Maintenance Request', 90],
+      ['Aisha Thompson', '⭐', 'Youth Program Proposal', 120],
+      ['Noah Williams', '🦉', 'Website Content Refresh', 60],
+      ['Mei Lin', '🚀', 'Digital Check-in Pilot', 180],
+      ['Lucas Brown', '🦊', 'Parking and Transit Feedback', 90],
+      ['Fatima Zahra', '👩‍🔬', 'Sustainability Working Group', 120],
+      ['Ethan Davis', '👨‍💻', 'Audio System Upgrade', 60],
+      ['Leila Morgan', '🎨', 'Public Art Collaboration', 150],
+      ['Gabriel Silva', '👨‍💼', 'Neighborhood Safety Walk', 90],
+      ['Hannah Lee', '👩‍💼', 'New Member Welcome Process', 120],
+      ['Mateo Garcia', '🦸‍♂️', 'Food Drive Logistics', 60],
+      ['Zoe Robinson', '⭐', 'Monthly Newsletter Ideas', 90],
+      ['Ibrahim Ali', '🚀', 'Open Questions and Follow-ups', 120],
+    ] as const;
+
+    room.state.queue = demoParticipants.map(([name, avatar, note, seconds], index) => ({
       id: `demo_q_${index + 1}`,
-      participant: { id: `demo_p_${index + 1}`, name: name as string, avatar: avatar as string, joinedAt: stamp - (3 - index) * 60_000 },
-      raisedAt: stamp - (3 - index) * 60_000,
-      note: note as string,
-      allocatedSeconds: seconds as number,
+      participant: {
+        id: `demo_p_${index + 1}`,
+        name,
+        avatar,
+        joinedAt: stamp - (demoParticipants.length - index) * 60_000,
+      },
+      raisedAt: stamp - (demoParticipants.length - index) * 60_000,
+      note,
+      allocatedSeconds: seconds,
     }));
   }
 
