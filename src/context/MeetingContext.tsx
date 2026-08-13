@@ -41,6 +41,7 @@ interface MeetingContextType {
   setActiveView: (view: UserRole) => void;
   authorizeModerator: (pin: string) => Promise<{ ok: boolean; error?: string }>;
   joinRoom: (name: string, avatar: string) => void;
+  leaveRoom: () => void;
   setCurrentUserInfo: (name: string, avatar: string) => void;
   raiseHand: (note?: string) => void;
   lowerHand: () => void;
@@ -308,6 +309,15 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasJoinedRoom(true);
   };
 
+  const leaveRoom = () => {
+    emitCommand('leave-meeting');
+    localStorage.removeItem(`${USER_KEY}_joined_${roomCode}`);
+    sessionStorage.removeItem(`${MODERATOR_TOKEN_KEY}_${roomCode}`);
+    setIsModerator(false);
+    setActiveViewState('participant');
+    setHasJoinedRoom(false);
+  };
+
   const setCurrentUserInfo = (name: string, avatar: string) => {
     saveCurrentUserInfo(name, avatar);
   };
@@ -349,6 +359,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setActiveView,
     authorizeModerator,
     joinRoom,
+    leaveRoom,
     setCurrentUserInfo,
     raiseHand: (note) => emitCommand('raise-hand', { name: currentUserName, avatar: currentUserAvatar, note }),
     lowerHand: () => emitCommand('lower-hand'),

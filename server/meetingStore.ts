@@ -219,7 +219,7 @@ export class MeetingStore {
     if (room.processedCommands.includes(command.id)) return { ok: true };
     room.processedCommands = [...room.processedCommands.slice(-499), command.id];
 
-    const moderatorOnly = !['raise-hand', 'lower-hand', 'finish-speaker'].includes(command.type);
+    const moderatorOnly = !['raise-hand', 'lower-hand', 'leave-meeting', 'finish-speaker'].includes(command.type);
     const moderator = this.isModerator(command.roomCode, command.moderatorToken);
     if (moderatorOnly && !moderator) return { ok: false, error: 'Moderator authorization required.' };
 
@@ -243,6 +243,15 @@ export class MeetingStore {
       }
       case 'lower-hand':
         room.state.queue = room.state.queue.filter((item) => item.participant.id !== command.participantId);
+        break;
+      case 'leave-meeting':
+        room.state.queue = room.state.queue.filter((item) => item.participant.id !== command.participantId);
+        if (room.state.speakerBuffer?.queueItem.participant.id === command.participantId) {
+          room.state.speakerBuffer = null;
+        }
+        if (room.state.activeSpeaker?.queueItem.participant.id === command.participantId) {
+          finishSpeaker(room, 'manual', false);
+        }
         break;
       case 'move-queue-item': {
         const id = stringPayload(payload, 'queueItemId');

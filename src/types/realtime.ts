@@ -3,6 +3,7 @@ import type { MeetingState, SessionSettings, UserRole } from './index';
 export type MeetingCommandType =
   | 'raise-hand'
   | 'lower-hand'
+  | 'leave-meeting'
   | 'move-queue-item'
   | 'reorder-queue'
   | 'dismiss-queue-item'
