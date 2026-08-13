@@ -20,6 +20,7 @@ import { soundManager } from '../utils/sound';
 interface MeetingContextType {
   roomCode: string;
   roomName: string;
+  publicBaseUrl: string;
   queue: QueueItem[];
   activeSpeaker: ActiveSpeaker | null;
   speakerBuffer: SpeakerBuffer | null;
@@ -111,6 +112,7 @@ function getRandomAvatar() {
 export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roomCode] = useState(getRoomCode);
   const [roomName, setRoomName] = useState(DEFAULT_ROOM_NAME);
+  const [publicBaseUrl, setPublicBaseUrl] = useState(window.location.origin);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [activeSpeaker, setActiveSpeaker] = useState<ActiveSpeaker | null>(null);
   const [speakerBuffer, setSpeakerBuffer] = useState<SpeakerBuffer | null>(null);
@@ -221,6 +223,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return;
         }
         applyState(response.state);
+        if (response.publicBaseUrl) setPublicBaseUrl(response.publicBaseUrl);
         setIsModerator(Boolean(response.moderatorAuthorized));
         setConnected(true);
         setReconnecting(false);
@@ -340,6 +343,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const value = useMemo<MeetingContextType>(() => ({
     roomCode,
     roomName,
+    publicBaseUrl,
     queue,
     activeSpeaker,
     speakerBuffer,
@@ -382,7 +386,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Action functions intentionally close over the latest render state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
-    roomCode, roomName, queue, activeSpeaker, speakerBuffer, history, settings, activeViewState,
+    roomCode, roomName, publicBaseUrl, queue, activeSpeaker, speakerBuffer, history, settings, activeViewState,
     currentUserId, currentUserName, currentUserAvatar, connected, reconnecting, connectionError,
     isModerator, hasJoinedRoom, isUserInQueue, userQueuePosition,
   ]);

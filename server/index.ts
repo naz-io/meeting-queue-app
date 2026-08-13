@@ -18,6 +18,39 @@ const store = new MeetingStore((roomCode, state) => {
   io.to(roomCode).emit('meeting-state', state);
 });
 
+function getLanAddress() {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries || []) {
+      if (entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.')) {
+        return entry.address;
+      }
+    }
+  }
+  return null;
+}
+
+function getPublicBaseUrl(origin?: string) {
+  const configuredUrl = process.env.PUBLIC_URL || process.env.VITE_PUBLIC_URL;
+  if (configuredUrl) return configuredUrl.replace(/\/$/, '');
+
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      if (!['localhost', '127.0.0.1', '::1'].includes(url.hostname)) return url.origin;
+      const lanAddress = getLanAddress();
+      if (lanAddress) {
+        url.hostname = lanAddress;
+        return url.origin;
+      }
+    } catch {
+      // Fall through to the server's own LAN address.
+    }
+  }
+
+  const lanAddress = getLanAddress();
+  return lanAddress ? `http://${lanAddress}:${port}` : `http://localhost:${port}`;
+}
+
 let isShuttingDown = false;
 
 const shutdown = (signal: string) => {
@@ -65,6 +98,7 @@ io.on('connection', (socket) => {
     callback({
       ok: true,
       state,
+      publicBaseUrl: getPublicBaseUrl(socket.handshake.headers.origin),
       moderatorAuthorized: store.isModerator(roomCode, request.moderatorToken),
     });
   });
@@ -92,13 +126,7 @@ app.use((_request, response) => response.sendFile(path.join(distDirectory, 'inde
 
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Meeting Queue server listening on http://localhost:${port}`);
-  for (const entries of Object.values(networkInterfaces())) {
-    for (const entry of entries || []) {
-      if (entry.family === 'IPv4' && !entry.internal) {
-        console.log(`LAN URL: http://${entry.address}:${port}/?room=MEET-7892`);
-      }
-    }
-  }
+  console.log(`Public URL: ${getPublicBaseUrl()}/?room=MEET-7892`);
   if (!process.env.MODERATOR_PIN) {
     console.log('Moderator PIN: 7892 (set MODERATOR_PIN to change it)');
   }

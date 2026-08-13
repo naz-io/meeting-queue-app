@@ -39,6 +39,7 @@ export interface JoinRoomRequest {
 export interface JoinRoomResponse {
   ok: boolean;
   state?: MeetingState;
+  publicBaseUrl?: string;
   moderatorAuthorized?: boolean;
   error?: string;
 }

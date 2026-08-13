@@ -10,7 +10,7 @@ interface QRCodeModalProps {
 }
 
 export const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose }) => {
-  const { roomCode } = useMeeting();
+  const { roomCode, publicBaseUrl } = useMeeting();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
@@ -18,7 +18,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose }) => 
   if (!isOpen) return null;
 
   // Dynamic meeting URL encoded in QR Code
-  const joinUrl = getJoinUrl(roomCode);
+  const joinUrl = getJoinUrl(roomCode, publicBaseUrl);
 
   const copyToClipboard = async () => {
     setCopyFailed(false);

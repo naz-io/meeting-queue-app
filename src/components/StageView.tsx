@@ -6,9 +6,9 @@ import { Sparkles, Users, QrCode, Hourglass, Mic, ArrowRight, ListOrdered } from
 import { getJoinUrl } from '../utils/joinUrl';
 
 export const StageView: React.FC = () => {
-  const { roomName, roomCode, activeSpeaker, speakerBuffer, queue } = useMeeting();
+  const { roomName, roomCode, publicBaseUrl, activeSpeaker, speakerBuffer, queue } = useMeeting();
 
-  const joinUrl = getJoinUrl(roomCode);
+  const joinUrl = getJoinUrl(roomCode, publicBaseUrl);
   const upNext = speakerBuffer?.queueItem ?? queue[0] ?? null;
   const remainingQueue = speakerBuffer ? queue : queue.slice(upNext ? 1 : 0);
   const waitingCount = remainingQueue.length + (upNext ? 1 : 0);

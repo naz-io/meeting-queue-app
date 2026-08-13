@@ -31,6 +31,8 @@ If the public URL cannot be inferred correctly, set it explicitly:
 VITE_PUBLIC_URL=http://192.168.1.25:5173 MODERATOR_PIN=your-private-pin npm run dev
 ```
 
+The meeting server normally replaces `localhost` with the computer's current LAN address when generating participant QR codes. For a custom domain or an unusual network setup, set `PUBLIC_URL` at runtime or `VITE_PUBLIC_URL` at build time.
+
 ## Production-style LAN run
 
 Build the React application, then serve it and Socket.IO from one port:
