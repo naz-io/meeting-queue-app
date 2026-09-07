@@ -14,6 +14,7 @@ import type {
   ClientToServerEvents,
   MeetingCommandType,
   ServerToClientEvents,
+  SpeakingTimeScope,
 } from '../types/realtime';
 import { soundManager } from '../utils/sound';
 
@@ -60,7 +61,7 @@ interface MeetingContextType {
   addTime: (seconds: number) => void;
   setSpeakerTimer: (seconds: number) => void;
   finishCurrentSpeaker: (reason?: 'completed' | 'dismissed' | 'skipped' | 'manual', autoAdvanceNext?: boolean) => void;
-  updateSettings: (newSettings: Partial<SessionSettings>) => void;
+  updateSettings: (newSettings: Partial<SessionSettings>, speakingTimeScope?: SpeakingTimeScope) => void;
   resetSession: () => void;
   loadDemoData: () => void;
 }
@@ -380,7 +381,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     addTime: (seconds) => emitCommand('add-time', { seconds }),
     setSpeakerTimer: (seconds) => emitCommand('set-speaker-timer', { seconds }),
     finishCurrentSpeaker: (reason = 'completed', autoAdvanceNext = false) => emitCommand('finish-speaker', { reason, autoAdvanceNext }),
-    updateSettings: (newSettings) => emitCommand('update-settings', { settings: newSettings }),
+    updateSettings: (newSettings, speakingTimeScope) => emitCommand('update-settings', { settings: newSettings, speakingTimeScope }),
     resetSession: () => emitCommand('reset-session'),
     loadDemoData: () => emitCommand('load-demo-data'),
   // Action functions intentionally close over the latest render state.

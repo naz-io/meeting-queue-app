@@ -82,6 +82,8 @@ export interface PersistedRoom {
   autoAdvanceAt?: number;
 }
 
+export type SpeakingTimeScope = 'existing-queue' | 'from-now-on';
+
 export type SettingsPatch = Partial<Pick<SessionSettings,
   'defaultTimerSeconds' | 'bufferSeconds' | 'autoAdvance' | 'warningChimeSeconds' | 'soundEnabled' | 'roomName'
 >>;

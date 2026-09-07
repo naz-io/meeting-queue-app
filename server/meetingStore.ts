@@ -320,7 +320,23 @@ export class MeetingStore {
       case 'update-settings': {
         const patch = (payload?.settings || {}) as SettingsPatch;
         const next = { ...room.state.settings };
-        if (typeof patch.defaultTimerSeconds === 'number') next.defaultTimerSeconds = Math.max(1, Math.min(10_800, patch.defaultTimerSeconds));
+        if (typeof patch.defaultTimerSeconds === 'number') {
+          if (!Number.isFinite(patch.defaultTimerSeconds)) {
+            return { ok: false, error: 'Speaking time must be a finite number.' };
+          }
+          const scope = payload?.speakingTimeScope;
+          if (scope !== undefined && scope !== 'existing-queue' && scope !== 'from-now-on') {
+            return { ok: false, error: 'Choose how to apply the speaking time.' };
+          }
+          next.defaultTimerSeconds = Math.max(1, Math.min(10_800, Math.round(patch.defaultTimerSeconds)));
+          if (scope === 'existing-queue') {
+            room.state.queue = room.state.queue.map((item) => ({
+              ...item,
+              allocatedSeconds: next.defaultTimerSeconds,
+            }));
+          }
+          // A called speaker (including the transition buffer) keeps their allocated time.
+        }
         if (typeof patch.bufferSeconds === 'number') next.bufferSeconds = Math.max(0, Math.min(120, patch.bufferSeconds));
         if (typeof patch.warningChimeSeconds === 'number') next.warningChimeSeconds = Math.max(0, Math.min(300, patch.warningChimeSeconds));
         if (typeof patch.autoAdvance === 'boolean') next.autoAdvance = patch.autoAdvance;

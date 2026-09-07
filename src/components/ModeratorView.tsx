@@ -24,6 +24,7 @@ import {
 
 import { TimerRing } from './TimerRing';
 import { QRCodeModal } from './QRCodeModal';
+import type { SpeakingTimeScope } from '../types/realtime';
 
 export const ModeratorView: React.FC = () => {
   const {
@@ -63,6 +64,8 @@ export const ModeratorView: React.FC = () => {
     (settings.defaultTimerSeconds % 60).toString()
   );
 
+  const [pendingDefaultSeconds, setPendingDefaultSeconds] = useState<number | null>(null);
+
   const [targetCallItem, setTargetCallItem] = useState<string | null>(null);
   const [callMins, setCallMins] = useState<string>('2');
   const [callSecs, setCallSecs] = useState<string>('0');
@@ -100,8 +103,14 @@ export const ModeratorView: React.FC = () => {
     const secs = parseInt(customDefaultSecs, 10) || 0;
     const totalSecs = mins * 60 + secs;
     if (totalSecs > 0) {
-      updateSettings({ defaultTimerSeconds: totalSecs });
+      setPendingDefaultSeconds(Math.min(10_800, totalSecs));
     }
+  };
+
+  const applyDefaultTimer = (scope: SpeakingTimeScope) => {
+    if (pendingDefaultSeconds === null) return;
+    updateSettings({ defaultTimerSeconds: pendingDefaultSeconds }, scope);
+    setPendingDefaultSeconds(null);
   };
 
   const handleExportCSV = () => {
@@ -660,7 +669,7 @@ export const ModeratorView: React.FC = () => {
 
             <div className="space-y-3 p-4 bg-slate-900/60 rounded-2xl border border-slate-800">
               <label className="block text-xs font-bold text-white">Default Speaker Timer</label>
-              <p className="text-xs text-slate-400">Sets default duration assigned to newly raised hands</p>
+              <p className="text-xs text-slate-400">Choose a duration, then choose who it applies to. The active speaker’s timer stays unchanged.</p>
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 {[60, 120, 180, 300, 600].map((sec) => (
@@ -668,7 +677,7 @@ export const ModeratorView: React.FC = () => {
                     key={sec}
                     type="button"
                     onClick={() => {
-                      updateSettings({ defaultTimerSeconds: sec });
+                      setPendingDefaultSeconds(sec);
                       setCustomDefaultMins(Math.floor(sec / 60).toString());
                       setCustomDefaultSecs((sec % 60).toString());
                     }}
@@ -690,6 +699,7 @@ export const ModeratorView: React.FC = () => {
                     type="number"
                     min="0"
                     max="180"
+                    aria-label="Default speaking time minutes"
                     value={customDefaultMins}
                     onChange={(e) => setCustomDefaultMins(e.target.value)}
                     className="w-16 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-center text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
@@ -699,6 +709,7 @@ export const ModeratorView: React.FC = () => {
                     type="number"
                     min="0"
                     max="59"
+                    aria-label="Default speaking time seconds"
                     value={customDefaultSecs}
                     onChange={(e) => setCustomDefaultSecs(e.target.value)}
                     className="w-16 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-center text-sm text-white font-mono focus:outline-none focus:border-indigo-500"
@@ -709,9 +720,29 @@ export const ModeratorView: React.FC = () => {
                   type="submit"
                   className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
                 >
-                  Save Default
+                  Choose Duration
                 </button>
               </form>
+
+              {pendingDefaultSeconds !== null && (
+                <div role="group" aria-label="Apply speaking time" className="space-y-3 p-3 rounded-xl border border-indigo-500/40 bg-indigo-500/10">
+                  <p className="text-sm font-semibold text-white" aria-live="polite">
+                    Apply {Math.floor(pendingDefaultSeconds / 60)}m {pendingDefaultSeconds % 60}s speaking time
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button type="button" onClick={() => applyDefaultTimer('existing-queue')} className="p-3 text-left rounded-xl border border-indigo-500 bg-indigo-600 hover:bg-indigo-500 text-white">
+                      <span className="block text-sm font-bold">Apply to existing queue</span>
+                      <span className="block text-xs mt-1">Update everyone waiting and future raised hands.</span>
+                    </button>
+                    <button type="button" onClick={() => applyDefaultTimer('from-now-on')} className="p-3 text-left rounded-xl border border-slate-600 bg-slate-900 hover:bg-slate-800 text-white">
+                      <span className="block text-sm font-bold">Apply only from now on</span>
+                      <span className="block text-xs mt-1">Keep current queue times. Update only future raised hands.</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-300">The active speaker and anyone already called during the transition buffer keep their time.</p>
+                  <button type="button" onClick={() => setPendingDefaultSeconds(null)} className="text-xs text-slate-300 hover:text-white underline">Cancel</button>
+                </div>
+              )}
             </div>
 
             <div className="flex items-start justify-between gap-4 p-4 bg-slate-900/60 rounded-2xl border border-slate-800">

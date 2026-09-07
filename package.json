@@ -9,6 +9,7 @@
     "dev:client": "vite --host 0.0.0.0",
     "build": "tsc -b && tsc -p tsconfig.server.json --noEmit && vite build",
     "lint": "oxlint",
+    "test": "node --test server/*.test.ts",
     "preview": "vite preview --host 0.0.0.0",
     "start": "node server/index.ts"
   },
