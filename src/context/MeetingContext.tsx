@@ -103,7 +103,7 @@ function getInitialView(): UserRole {
 function getServerUrl() {
   const configuredUrl = import.meta.env.VITE_SERVER_URL as string | undefined;
   if (configuredUrl) return configuredUrl;
-  if (import.meta.env.DEV) return `${window.location.protocol}//${window.location.hostname}:3000`;
+  // Same origin in every mode: Vite proxies /socket.io in development (see vite.config.ts).
   return window.location.origin;
 }
 

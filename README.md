@@ -19,6 +19,8 @@ http://192.168.1.25:5173/?room=MEET-7892
 
 Do not open the app as `localhost` when displaying the QR code; phones cannot reach `localhost` on the host computer.
 
+Vite forwards the live connection to the meeting server, so phones only need Vite's port (5173). The meeting server listens on port 3000; set `MEETING_SERVER_PORT` to move it (Vite follows the same setting). In development the generic `PORT` variable is ignored, so tools that set it for Vite cannot move the meeting server.
+
 In development (`npm run dev`) the moderator PIN defaults to `7892`. Set a private PIN before real use:
 
 ```bash
@@ -55,6 +57,8 @@ http://192.168.1.25:3000/?room=MEET-7892
 Keep the host computer awake and allow incoming Node connections through the firewall. Guest Wi-Fi networks may enable client isolation, which prevents devices from reaching the host.
 
 Stop the server from its Terminal window with `Control+C`. Wait for `Meeting server stopped. Port released.` before closing the Terminal. The app handles shutdown signals and releases port 3000 before exiting.
+
+`npm start` listens on `MEETING_SERVER_PORT`, then `PORT`, then 3000.
 
 ## Rooms and views
 

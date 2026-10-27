@@ -4,10 +4,12 @@ import { startServer, type MeetingServer } from './app.ts';
 // Process entry point: reads the environment, prints startup details and handles Control+C.
 // Everything that can be tested without a real process lives in app.ts.
 
-const port = Number(process.env.PORT) || 3000;
-
 const DEV_MODERATOR_PIN = '7892';
 const isDevMode = process.argv.includes('--dev');
+
+// MEETING_SERVER_PORT is ours. The generic PORT is honoured only outside dev mode, where hosting
+// tools set it on purpose; in dev it usually belongs to Vite and must not move this server.
+const port = Number(process.env.MEETING_SERVER_PORT || (isDevMode ? undefined : process.env.PORT)) || 3000;
 const configuredPin = process.env.MODERATOR_PIN?.trim();
 // Never fall back to the published dev PIN outside `npm run dev`.
 const moderatorPin = configuredPin
