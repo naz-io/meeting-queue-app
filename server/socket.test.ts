@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { io, type Socket } from 'socket.io-client';
 import { startServer } from './app.ts';
 import { tempDataDirectory, TEST_PIN } from './testSupport.ts';
-import type { MeetingState } from '../shared/meeting.ts';
+import type { MeetingSnapshot, SpeakerHistoryItem } from '../shared/meeting.ts';
 import type { ClientToServerEvents, MeetingCommand, ServerToClientEvents } from '../shared/protocol.ts';
 
 // Runs the real server on a random port and talks to it over real sockets, like two phones would.
@@ -23,9 +23,9 @@ function connect(port: number): Promise<Client> {
 }
 
 /** Resolves with the next broadcast that matches, so tests wait for real pushes instead of sleeping. */
-function nextState(socket: Client, matches: (state: MeetingState) => boolean) {
-  return new Promise<MeetingState>((resolve) => {
-    const listener = (state: MeetingState) => {
+function nextState(socket: Client, matches: (state: MeetingSnapshot) => boolean) {
+  return new Promise<MeetingSnapshot>((resolve) => {
+    const listener = (state: MeetingSnapshot) => {
       if (!matches(state)) return;
       socket.off('meeting-state', listener);
       resolve(state);
@@ -81,6 +81,31 @@ test('two devices share one live meeting through the real server', { timeout: 15
     const reset = await send(stage, 'stage', { type: 'reset-session', payload: undefined, moderatorToken: login.moderatorToken });
     assert.deepEqual(reset, { ok: true });
     await seenByPhone;
+  });
+
+  await t.test('history travels separately and only when it changes', async () => {
+    const histories: SpeakerHistoryItem[][] = [];
+    const record = (history: SpeakerHistoryItem[]) => histories.push(history);
+    stage.on('meeting-history', record);
+    const login = await stage.emitWithAck('authenticate-moderator', { roomCode: ROOM, pin: TEST_PIN });
+    const moderatorToken = login.moderatorToken;
+
+    const queued = nextState(stage, (state) => state.queue.length === 1);
+    await send(phone, 'phone', { type: 'raise-hand', payload: { name: 'Sara' } });
+    const queuedState = await queued;
+    assert.equal('history' in queuedState, false, 'state messages carry no history');
+
+    const speaking = nextState(stage, (state) => state.activeSpeaker !== null);
+    await send(stage, 'stage', { type: 'start-speaker', payload: { skipBuffer: true }, moderatorToken });
+    await speaking;
+    assert.equal(histories.length, 0, 'raising a hand and calling a speaker leave history alone');
+
+    const finished = nextState(stage, (state) => state.activeSpeaker === null);
+    await send(stage, 'stage', { type: 'finish-speaker', payload: {}, moderatorToken });
+    await finished;
+    assert.equal(histories.length, 1, 'a finished turn sends the history once');
+    assert.equal(histories[0][0].participantName, 'Sara');
+    stage.off('meeting-history', record);
   });
 
   await t.test('bad input gets an error reply and the server keeps working', async () => {

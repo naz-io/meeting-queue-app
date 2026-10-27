@@ -28,7 +28,11 @@ export function setup(t: TestContext) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const dataDirectory = tempDataDirectory(t);
   const broadcasts: unknown[] = [];
-  const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)), { moderatorPin: TEST_PIN, dataDirectory });
+  const historyBroadcasts: unknown[] = [];
+  const store = new MeetingStore((_code, state, history) => {
+    broadcasts.push(structuredClone(state));
+    if (history) historyBroadcasts.push(structuredClone(history));
+  }, { moderatorPin: TEST_PIN, dataDirectory });
   const room = openRoom(store, 'TEST-ROOM');
   const moderatorToken = store.authenticateModerator('TEST-ROOM', TEST_PIN)!;
   let sequence = 0;
@@ -55,5 +59,5 @@ export function setup(t: TestContext) {
     for (let elapsed = 0; elapsed < ms; elapsed += TICK_MS) t.mock.timers.tick(Math.min(TICK_MS, ms - elapsed));
   };
 
-  return { store, room, command, raise, change, start, advance, broadcasts, dataDirectory, moderatorToken };
+  return { store, room, command, raise, change, start, advance, broadcasts, historyBroadcasts, dataDirectory, moderatorToken };
 }

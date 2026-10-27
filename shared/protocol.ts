@@ -1,4 +1,4 @@
-import type { MeetingState, SessionSettings, SpeakerHistoryItem } from './meeting.ts';
+import type { MeetingSnapshot, MeetingState, SessionSettings, SpeakerHistoryItem } from './meeting.ts';
 
 export type QueueDirection = 'up' | 'down' | 'top' | 'bottom';
 export type SpeakerEndReason = SpeakerHistoryItem['endedReason'];
@@ -75,7 +75,9 @@ export interface CommandResponse {
 
 export interface ServerToClientEvents {
   /** `serverTime` is the server's Date.now() when sent; devices count down from `endsAt` with it. */
-  'meeting-state': (state: MeetingState, serverTime: number) => void;
+  'meeting-state': (state: MeetingSnapshot, serverTime: number) => void;
+  /** Sent only when the history changes; it can hold up to 1,000 entries. */
+  'meeting-history': (history: SpeakerHistoryItem[]) => void;
   'server-error': (message: string) => void;
 }
 

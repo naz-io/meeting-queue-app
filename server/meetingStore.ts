@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { MeetingState } from '../shared/meeting.ts';
+import type { MeetingSnapshot, MeetingState, SpeakerHistoryItem } from '../shared/meeting.ts';
 import type { CommandResponse, PersistedRoom } from '../shared/protocol.ts';
 import { DEFAULT_ROOM_CODE, parseRoomCode } from '../shared/roomCode.ts';
 import { definitionOf } from './commandHandlers.ts';
@@ -19,7 +19,8 @@ type OpenRoomResult =
   | { ok: true; roomCode: string; room: RoomRecord }
   | { ok: false; code: 'invalid-room' | 'room-limit'; error: string };
 
-type Broadcast = (roomCode: string, state: MeetingState) => void;
+/** `history` is passed only when it changed since the room was last broadcast. */
+type Broadcast = (roomCode: string, state: MeetingSnapshot, history?: SpeakerHistoryItem[]) => void;
 
 interface MeetingStoreOptions {
   moderatorPin: string;
@@ -50,6 +51,8 @@ export class MeetingStore {
   private persistTimer: NodeJS.Timeout | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
   private broadcast: Broadcast;
+  /** The history array each room last broadcast; every history change creates a new array. */
+  private sentHistory = new WeakMap<RoomRecord, SpeakerHistoryItem[]>();
   private moderatorPin: string;
   private dataDirectory: string;
   private dataFile: string;
@@ -246,7 +249,10 @@ export class MeetingStore {
   }
 
   private publish(room: RoomRecord) {
-    this.broadcast(room.state.roomCode, room.state);
+    const { history, ...snapshot } = room.state;
+    const historyChanged = this.sentHistory.get(room) !== history;
+    this.sentHistory.set(room, history);
+    this.broadcast(room.state.roomCode, snapshot, historyChanged ? history : undefined);
     this.schedulePersist();
   }
 

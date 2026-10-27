@@ -226,3 +226,18 @@ test('a running timer is broadcast at hand-offs and expiry, not every second', a
   assert.equal(broadcasts.length, afterCall + 2, 'an expired speaker is not re-sent');
   await store.flush();
 });
+
+test('history is broadcast the first time and then only when it changes', (t) => {
+  const { command, raise, historyBroadcasts } = setup(t);
+  raise('a');
+  assert.equal(historyBroadcasts.length, 1, 'first broadcast for the room includes its history');
+  raise('b');
+  command('start-speaker', { skipBuffer: true });
+  command('add-time', { seconds: 30 });
+  assert.equal(historyBroadcasts.length, 1, 'queue and timer changes do not resend it');
+  command('finish-speaker', {});
+  assert.equal(historyBroadcasts.length, 2, 'a finished turn does');
+  command('reset-session');
+  assert.equal(historyBroadcasts.length, 3, 'and so does clearing it');
+  assert.deepEqual(historyBroadcasts.at(-1), []);
+});

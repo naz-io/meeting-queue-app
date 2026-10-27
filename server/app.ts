@@ -46,7 +46,9 @@ export async function startServer(options: MeetingServerOptions): Promise<Meetin
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: true, credentials: true },
   });
-  const store = new MeetingStore((roomCode, state) => {
+  const store = new MeetingStore((roomCode, state, history) => {
+    // History first, so a device never shows a finished turn missing from its stats.
+    if (history) io.to(roomCode).emit('meeting-history', history);
     io.to(roomCode).emit('meeting-state', state, Date.now());
   }, { moderatorPin: options.moderatorPin, dataDirectory: options.dataDirectory });
   const pinAttempts = new PinAttemptLimiter();

@@ -4,7 +4,7 @@ import confetti from 'canvas-confetti';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ActiveSpeaker,
-  MeetingState,
+  MeetingSnapshot,
   QueueItem,
   SessionSettings,
   SpeakerBuffer,
@@ -191,7 +191,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
     socketRef.current = socket;
 
-    const applyState = (state: MeetingState, serverTime?: number) => {
+    const applyState = (state: MeetingSnapshot, serverTime?: number) => {
       const previousBuffer = previousBufferRef.current;
       const presentationDevice = activeViewRef.current === 'moderator' || activeViewRef.current === 'stage';
 
@@ -206,7 +206,6 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setQueue(state.queue);
       setActiveSpeaker(state.activeSpeaker);
       setSpeakerBuffer(state.speakerBuffer);
-      setHistory(state.history);
       setSettings(state.settings);
     };
 
@@ -217,7 +216,9 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setConnectionError(response.error || 'Could not join the meeting room.');
           return;
         }
+        // Joining returns the full room; afterwards history arrives only when it changes.
         applyState(response.state, response.serverTime);
+        setHistory(response.state.history);
         if (response.publicBaseUrl) setPublicBaseUrl(response.publicBaseUrl);
         setConnected(true);
         setReconnecting(false);
@@ -241,6 +242,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setConnectionError('Cannot reach the meeting server. Check Wi-Fi and the host computer.');
     });
     socket.on('meeting-state', applyState);
+    socket.on('meeting-history', setHistory);
     socket.on('server-error', setConnectionError);
 
     return () => {

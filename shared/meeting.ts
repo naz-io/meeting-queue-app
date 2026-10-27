@@ -54,6 +54,9 @@ export interface SessionSettings {
   roomCode: string;
 }
 
+/** The room as broadcast after each change: everything except the history, which is sent separately. */
+export type MeetingSnapshot = Omit<MeetingState, 'history'>;
+
 export interface MeetingState {
   roomCode: string;
   roomName: string;
