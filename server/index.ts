@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '../src/types/realtime.ts';
 import { MeetingStore } from './meetingStore.ts';
+import { PinAttemptLimiter } from './pinAttempts.ts';
 
 const port = Number(process.env.PORT) || 3000;
 const app = express();
@@ -17,6 +18,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 const store = new MeetingStore((roomCode, state) => {
   io.to(roomCode).emit('meeting-state', state);
 });
+const pinAttempts = new PinAttemptLimiter();
 
 function getLanAddress() {
   for (const entries of Object.values(networkInterfaces())) {
@@ -107,11 +109,19 @@ io.on('connection', (socket) => {
   });
 
   socket.on('authenticate-moderator', (request, callback) => {
+    const clientAddress = socket.handshake.address;
+    const waitSeconds = pinAttempts.retryAfterSeconds(clientAddress);
+    if (waitSeconds > 0) {
+      callback({ ok: false, error: `Too many incorrect PINs. Try again in ${waitSeconds} s.` });
+      return;
+    }
     const token = store.authenticateModerator(request.roomCode, request.pin);
     if (!token) {
+      pinAttempts.recordFailure(clientAddress);
       callback({ ok: false, error: 'Incorrect moderator PIN.' });
       return;
     }
+    pinAttempts.recordSuccess(clientAddress);
     callback({ ok: true, moderatorToken: token });
   });
 

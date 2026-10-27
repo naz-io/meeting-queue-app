@@ -141,3 +141,11 @@ test('turning auto-advance off cancels a pending hand-off', (t) => {
   command('update-settings', { settings: { autoAdvance: false } });
   assert.equal(room.autoAdvanceAt, undefined);
 });
+
+test('moderator PIN must be the exact string', (t) => {
+  const { store } = setup(t);
+  assert.ok(store.authenticateModerator('TEST-ROOM', '7892'));
+  for (const wrong of ['789', '78920', '', 7892, null, { pin: '7892' }]) {
+    assert.equal(store.authenticateModerator('TEST-ROOM', wrong), null);
+  }
+});

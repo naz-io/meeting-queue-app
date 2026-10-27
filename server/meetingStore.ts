@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { MeetingState, QueueItem, SpeakerHistoryItem } from '../src/types/index.ts';
@@ -60,6 +60,12 @@ function publicState(state: MeetingState): MeetingState {
     currentUserName: '',
     currentUserAvatar: '',
   };
+}
+
+/** Constant-time comparison, so response timing never hints at how close a guess was. */
+function sameSecret(candidate: string, secret: string) {
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(candidate), digest(secret));
 }
 
 function randomToken() {
@@ -200,8 +206,8 @@ export class MeetingStore {
     return publicState(this.getRoom(roomCode).state);
   }
 
-  authenticateModerator(roomCode: string, pin: string) {
-    if (pin !== DEFAULT_MODERATOR_PIN) return null;
+  authenticateModerator(roomCode: string, pin: unknown) {
+    if (typeof pin !== 'string' || !sameSecret(pin, DEFAULT_MODERATOR_PIN)) return null;
     return this.getRoom(roomCode).moderatorToken;
   }
 
