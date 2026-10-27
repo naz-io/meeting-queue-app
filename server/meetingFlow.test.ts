@@ -202,3 +202,27 @@ test('a restart keeps a paused timer paused', async (t) => {
   assert.equal(active?.remainingSeconds, 100);
   await restarted.flush();
 });
+
+test('a running timer is broadcast at hand-offs and expiry, not every second', async (t) => {
+  const { command, raise, start, advance, store, broadcasts } = setup(t);
+  await start();
+  raise('speaker');
+  command('start-speaker');
+  const afterCall = broadcasts.length;
+
+  advance(9_000);
+  assert.equal(broadcasts.length, afterCall, 'buffer counting down: nothing sent');
+  advance(1_000);
+  assert.equal(broadcasts.length, afterCall + 1, 'buffer ran out: speaker starts');
+
+  advance(119_000);
+  assert.equal(broadcasts.length, afterCall + 1, 'speaker counting down: nothing sent');
+  advance(1_000);
+  assert.equal(broadcasts.length, afterCall + 2, 'time ran out');
+  const last = broadcasts.at(-1) as { activeSpeaker: { remainingSeconds: number; endsAt: number } };
+  assert.equal(last.activeSpeaker.remainingSeconds, 0);
+
+  advance(10_000);
+  assert.equal(broadcasts.length, afterCall + 2, 'an expired speaker is not re-sent');
+  await store.flush();
+});

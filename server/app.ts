@@ -47,7 +47,7 @@ export async function startServer(options: MeetingServerOptions): Promise<Meetin
     cors: { origin: true, credentials: true },
   });
   const store = new MeetingStore((roomCode, state) => {
-    io.to(roomCode).emit('meeting-state', state);
+    io.to(roomCode).emit('meeting-state', state, Date.now());
   }, { moderatorPin: options.moderatorPin, dataDirectory: options.dataDirectory });
   const pinAttempts = new PinAttemptLimiter();
   let boundPort = options.port;
@@ -93,6 +93,7 @@ export async function startServer(options: MeetingServerOptions): Promise<Meetin
         state: store.getSnapshot(roomCode) ?? undefined,
         publicBaseUrl: publicBaseUrl(socket.handshake.headers.origin),
         moderatorAuthorized: store.isModerator(roomCode, request.moderatorToken),
+        serverTime: Date.now(),
       });
     });
 

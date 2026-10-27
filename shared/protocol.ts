@@ -54,6 +54,8 @@ export interface JoinRoomResponse {
   state?: MeetingState;
   publicBaseUrl?: string;
   moderatorAuthorized?: boolean;
+  /** The server's Date.now(), so devices can correct for their own clock being off. */
+  serverTime?: number;
   error?: string;
   code?: 'invalid-room' | 'room-limit';
 }
@@ -72,7 +74,8 @@ export interface CommandResponse {
 }
 
 export interface ServerToClientEvents {
-  'meeting-state': (state: MeetingState) => void;
+  /** `serverTime` is the server's Date.now() when sent; devices count down from `endsAt` with it. */
+  'meeting-state': (state: MeetingState, serverTime: number) => void;
   'server-error': (message: string) => void;
 }
 

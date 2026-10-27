@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ActiveSpeaker,
+  MeetingState,
   QueueItem,
   SessionSettings,
   SpeakerBuffer,
@@ -21,6 +22,7 @@ import type {
 import { soundManager } from '../utils/sound';
 import { DEFAULT_ROOM_CODE, parseRoomCode } from '../../shared/roomCode';
 import { totalSpokenSeconds, turnCount } from '../utils/speakingStats';
+import { useLiveSeconds } from './useLiveSeconds';
 
 interface MeetingContextType {
   roomCode: string;
@@ -156,8 +158,10 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.getItem(`${USER_KEY}_${roomCode}_avatar`) || localStorage.getItem(`${USER_KEY}_avatar`) || getRandomAvatar()
   ));
 
+  // Server clock minus this device's clock, refreshed with every message from the server.
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
-  const previousSpeakerRef = useRef<ActiveSpeaker | null>(null);
   const previousBufferRef = useRef<SpeakerBuffer | null>(null);
   const activeViewRef = useRef(activeViewState);
 
@@ -187,40 +191,16 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
     socketRef.current = socket;
 
-    const applyState = (state: Parameters<ServerToClientEvents['meeting-state']>[0]) => {
-      const previousSpeaker = previousSpeakerRef.current;
+    const applyState = (state: MeetingState, serverTime?: number) => {
       const previousBuffer = previousBufferRef.current;
-      const currentSpeaker = state.activeSpeaker;
       const presentationDevice = activeViewRef.current === 'moderator' || activeViewRef.current === 'stage';
 
+      if (serverTime !== undefined) setServerOffsetMs(serverTime - Date.now());
       soundManager.setSoundEnabled(state.settings.soundEnabled);
       if (presentationDevice && previousBuffer && !state.speakerBuffer && state.activeSpeaker) {
         soundManager.playPop();
       }
-      if (
-        presentationDevice &&
-        previousSpeaker &&
-        currentSpeaker &&
-        previousSpeaker.queueItem.id === currentSpeaker.queueItem.id &&
-        previousSpeaker.remainingSeconds > state.settings.warningChimeSeconds &&
-        currentSpeaker.remainingSeconds <= state.settings.warningChimeSeconds &&
-        currentSpeaker.remainingSeconds > 0
-      ) {
-        soundManager.playWarningChime();
-      }
-      if (
-        presentationDevice &&
-        previousSpeaker &&
-        currentSpeaker &&
-        previousSpeaker.queueItem.id === currentSpeaker.queueItem.id &&
-        previousSpeaker.remainingSeconds > 0 &&
-        currentSpeaker.remainingSeconds === 0
-      ) {
-        soundManager.playTimerEndAlert();
-        confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
-      }
 
-      previousSpeakerRef.current = state.activeSpeaker;
       previousBufferRef.current = state.speakerBuffer;
       setRoomName(state.roomName);
       setQueue(state.queue);
@@ -237,7 +217,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setConnectionError(response.error || 'Could not join the meeting room.');
           return;
         }
-        applyState(response.state);
+        applyState(response.state, response.serverTime);
         if (response.publicBaseUrl) setPublicBaseUrl(response.publicBaseUrl);
         setConnected(true);
         setReconnecting(false);
@@ -350,6 +330,35 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const getParticipantTotalSpokenSeconds = (participantId?: string, name?: string) => totalSpokenSeconds(history, participantId, name);
   const getParticipantTurnCount = (participantId?: string, name?: string) => turnCount(history, participantId, name);
 
+  // The server sends timers as end times; each device counts down itself (see useLiveSeconds).
+  const speakerSeconds = useLiveSeconds(activeSpeaker, activeSpeaker?.remainingSeconds ?? 0, serverOffsetMs);
+  const bufferSeconds = useLiveSeconds(speakerBuffer, speakerBuffer?.remainingBufferSeconds ?? 0, serverOffsetMs);
+  const liveSpeaker = useMemo(
+    () => activeSpeaker && { ...activeSpeaker, remainingSeconds: speakerSeconds },
+    [activeSpeaker, speakerSeconds],
+  );
+  const liveBuffer = useMemo(
+    () => speakerBuffer && { ...speakerBuffer, remainingBufferSeconds: bufferSeconds },
+    [speakerBuffer, bufferSeconds],
+  );
+
+  // Warning chime and time-up alert, on the moderator and stage screens only.
+  const lastCountdownRef = useRef<{ queueItemId: string; seconds: number } | null>(null);
+  useEffect(() => {
+    const previous = lastCountdownRef.current;
+    lastCountdownRef.current = liveSpeaker ? { queueItemId: liveSpeaker.queueItem.id, seconds: liveSpeaker.remainingSeconds } : null;
+    const presentationDevice = activeViewState === 'moderator' || activeViewState === 'stage';
+    if (!presentationDevice || !previous || !liveSpeaker || previous.queueItemId !== liveSpeaker.queueItem.id) return;
+
+    const seconds = liveSpeaker.remainingSeconds;
+    const warning = settings.warningChimeSeconds;
+    if (previous.seconds > warning && seconds <= warning && seconds > 0) soundManager.playWarningChime();
+    if (previous.seconds > 0 && seconds === 0) {
+      soundManager.playTimerEndAlert();
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+    }
+  }, [activeViewState, liveSpeaker, settings.warningChimeSeconds]);
+
   const isUserInQueue = queue.some((item) => item.participant.id === currentUserId);
   const userQueuePosition = queue.findIndex((item) => item.participant.id === currentUserId) + 1;
 
@@ -358,8 +367,8 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     roomName,
     publicBaseUrl,
     queue,
-    activeSpeaker,
-    speakerBuffer,
+    activeSpeaker: liveSpeaker,
+    speakerBuffer: liveBuffer,
     history,
     settings,
     activeView: activeViewState,
@@ -399,7 +408,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Action functions intentionally close over the latest render state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
-    roomCode, roomName, publicBaseUrl, queue, activeSpeaker, speakerBuffer, history, settings, activeViewState,
+    roomCode, roomName, publicBaseUrl, queue, liveSpeaker, liveBuffer, history, settings, activeViewState,
     currentUserId, currentUserName, currentUserAvatar, connected, reconnecting, connectionError,
     isModerator, hasJoinedRoom, isUserInQueue, userQueuePosition,
   ]);

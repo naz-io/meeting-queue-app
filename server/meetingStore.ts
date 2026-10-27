@@ -207,30 +207,30 @@ export class MeetingStore {
     return { ok: true };
   }
 
+  /**
+   * Keeps remaining seconds current for the server's own use (history, pausing, saving) and runs
+   * the timed transitions. Devices count down locally from `endsAt`, so the room is only
+   * broadcast when something changes hands, not every second.
+   */
   private tick() {
     const timestamp = now();
     for (const room of this.rooms.values()) {
-      let changed = false;
+      let transitioned = false;
       const buffer = room.state.speakerBuffer;
       if (buffer && !buffer.isPaused && buffer.endsAt) {
-        const remaining = Math.max(0, Math.ceil((buffer.endsAt - timestamp) / 1000));
-        if (remaining !== buffer.remainingBufferSeconds) {
-          buffer.remainingBufferSeconds = remaining;
-          changed = true;
-        }
-        if (remaining === 0) {
+        buffer.remainingBufferSeconds = Math.max(0, Math.ceil((buffer.endsAt - timestamp) / 1000));
+        if (buffer.remainingBufferSeconds === 0) {
           activateBufferedSpeaker(room);
-          changed = true;
+          transitioned = true;
         }
       }
 
       const active = room.state.activeSpeaker;
       if (active && !active.isPaused && active.endsAt) {
         const remaining = Math.max(0, Math.ceil((active.endsAt - timestamp) / 1000));
-        if (remaining !== active.remainingSeconds) {
-          active.remainingSeconds = remaining;
-          changed = true;
-        }
+        // Running out of time is a change every device should see, even though they count locally.
+        if (remaining === 0 && active.remainingSeconds !== 0) transitioned = true;
+        active.remainingSeconds = remaining;
         if (remaining === 0 && room.state.settings.autoAdvance && !room.autoAdvanceAt) {
           room.autoAdvanceAt = timestamp + 1200;
         }
@@ -238,10 +238,10 @@ export class MeetingStore {
 
       if (room.autoAdvanceAt && timestamp >= room.autoAdvanceAt) {
         finishSpeaker(room, 'completed', true);
-        changed = true;
+        transitioned = true;
       }
 
-      if (changed) this.publish(room);
+      if (transitioned) this.publish(room);
     }
   }
 
