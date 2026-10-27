@@ -25,6 +25,7 @@ import {
 import { TimerRing } from './TimerRing';
 import { QRCodeModal } from './QRCodeModal';
 import type { SpeakingTimeScope } from '../types/realtime';
+import { historyToCsv } from '../utils/csv';
 
 export const ModeratorView: React.FC = () => {
   const {
@@ -115,23 +116,16 @@ export const ModeratorView: React.FC = () => {
 
   const handleExportCSV = () => {
     if (history.length === 0) return;
-    const headers = ['Participant Name', 'Spoken At', 'Actual Seconds', 'Allocated Seconds', 'Status'];
-    const rows = history.map((h) => [
-      `"${h.participantName}"`,
-      `"${new Date(h.spokenAt).toLocaleTimeString()}"`,
-      h.actualDurationSeconds,
-      h.allocatedSeconds,
-      h.endedReason,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    // The byte-order mark makes Excel read names with emoji or accents as UTF-8.
+    const blob = new Blob(['﻿', historyToCsv(history)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `meeting_speakers_log_${Date.now()}.csv`);
+    link.href = url;
+    link.download = `meeting_speakers_log_${Date.now()}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
