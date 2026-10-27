@@ -20,6 +20,7 @@ import type {
 } from '../types/realtime';
 import { soundManager } from '../utils/sound';
 import { DEFAULT_ROOM_CODE, parseRoomCode } from '../utils/roomCode';
+import { totalSpokenSeconds, turnCount } from '../utils/speakingStats';
 
 interface MeetingContextType {
   roomCode: string;
@@ -276,7 +277,8 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     setConnectionError(null);
-    soundManager.playPop();
+    // Feedback for the moderator's controls only; participants' phones stay quiet.
+    if (activeViewRef.current === 'moderator') soundManager.playPop();
     socket.emit('meeting-command', {
       id: randomId('cmd'),
       roomCode,
@@ -345,17 +347,8 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveCurrentUserInfo(name, avatar);
   };
 
-  const getParticipantTotalSpokenSeconds = (participantId?: string, name?: string) => history.reduce((total, item) => {
-    const matchesId = participantId && item.participantId === participantId;
-    const matchesName = name && item.participantName.toLowerCase() === name.toLowerCase();
-    return matchesId || matchesName ? total + item.actualDurationSeconds : total;
-  }, 0);
-
-  const getParticipantTurnCount = (participantId?: string, name?: string) => history.filter((item) => {
-    const matchesId = participantId && item.participantId === participantId;
-    const matchesName = name && item.participantName.toLowerCase() === name.toLowerCase();
-    return matchesId || matchesName;
-  }).length;
+  const getParticipantTotalSpokenSeconds = (participantId?: string, name?: string) => totalSpokenSeconds(history, participantId, name);
+  const getParticipantTurnCount = (participantId?: string, name?: string) => turnCount(history, participantId, name);
 
   const isUserInQueue = queue.some((item) => item.participant.id === currentUserId);
   const userQueuePosition = queue.findIndex((item) => item.participant.id === currentUserId) + 1;
