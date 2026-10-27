@@ -258,3 +258,12 @@ test('the queue stops at 200 people', (t) => {
   assert.match(response.error ?? '', /queue is full/);
   assert.equal(room.state.queue.length, 200);
 });
+
+test('malformed commands are refused before they touch the room', (t) => {
+  const { store, room } = setup(t);
+  const before = structuredClone(room.state);
+  for (const raw of [null, 'reset-session', { type: 'reset-session' }, { roomCode: 'TEST-ROOM', type: 'reset-session', payload: 1 }]) {
+    assert.equal(store.handleCommand(raw).ok, false);
+  }
+  assert.deepEqual(room.state, before);
+});

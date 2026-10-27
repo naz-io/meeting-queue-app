@@ -2,8 +2,9 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { MeetingState, QueueItem, SpeakerHistoryItem } from '../src/types/index.ts';
-import type { MeetingCommand, PersistedRoom, SettingsPatch } from '../src/types/realtime.ts';
+import type { MeetingCommandType, PersistedRoom } from '../src/types/realtime.ts';
 import { DEFAULT_ROOM_CODE, parseRoomCode } from '../src/utils/roomCode.ts';
+import { parseCommand } from './commands.ts';
 
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
 const MODERATOR_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -11,6 +12,8 @@ const MAX_MODERATOR_SESSIONS = 20;
 const MAX_ROOMS = 50;
 const MAX_QUEUE_LENGTH = 200;
 const IDLE_ROOM_MS = 24 * 60 * 60 * 1000;
+/** Everything else needs a moderator token. */
+const PARTICIPANT_COMMANDS: ReadonlySet<MeetingCommandType> = new Set(['raise-hand', 'lower-hand', 'leave-meeting', 'finish-speaker']);
 // Next to this file, so starting the server from another folder still uses the same data.
 const DEFAULT_DATA_DIRECTORY = path.join(import.meta.dirname, 'data');
 
@@ -74,16 +77,6 @@ function sameSecret(candidate: string, secret: string) {
 
 function randomToken() {
   return randomBytes(24).toString('hex');
-}
-
-function stringPayload(payload: Record<string, unknown> | undefined, key: string, maxLength = 120) {
-  const value = payload?.[key];
-  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
-}
-
-function numberPayload(payload: Record<string, unknown> | undefined, key: string, fallback = 0) {
-  const value = payload?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function finishSpeaker(room: RoomRecord, reason: SpeakerHistoryItem['endedReason'], autoAdvance: boolean) {
@@ -294,7 +287,11 @@ export class MeetingStore {
     return createHmac('sha256', this.moderatorPin).update(token).digest('hex');
   }
 
-  handleCommand(command: MeetingCommand) {
+  /** Takes the raw socket payload; nothing below the parse step sees unvalidated data. */
+  handleCommand(raw: unknown) {
+    const parsed = parseCommand(raw);
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    const command = parsed.command;
     const room = this.findRoom(command.roomCode);
     if (!room) return { ok: false, error: 'This room is no longer open. Reload the page to rejoin.' };
     if (!this.authorizeParticipant(command.roomCode, command.participantId, command.participantToken)) {
@@ -303,14 +300,13 @@ export class MeetingStore {
     if (room.processedCommands.includes(command.id)) return { ok: true };
     room.processedCommands = [...room.processedCommands.slice(-499), command.id];
 
-    const moderatorOnly = !['raise-hand', 'lower-hand', 'leave-meeting', 'finish-speaker'].includes(command.type);
+    const moderatorOnly = !PARTICIPANT_COMMANDS.has(command.type);
     const moderator = this.isModerator(command.roomCode, command.moderatorToken);
     if (moderatorOnly && !moderator) {
       return { ok: false, error: 'Moderator authorization required.', code: 'moderator-auth-required' as const };
     }
 
     room.lastActivityAt = now();
-    const payload = command.payload;
     switch (command.type) {
       case 'raise-hand': {
         if (room.state.queue.some((item) => item.participant.id === command.participantId)) break;
@@ -319,13 +315,17 @@ export class MeetingStore {
         if (room.state.queue.length >= MAX_QUEUE_LENGTH) {
           return { ok: false, error: `The queue is full (${MAX_QUEUE_LENGTH} people). Try again after a few people have spoken.` };
         }
-        const name = stringPayload(payload, 'name', 60) || 'Guest Participant';
-        const avatar = stringPayload(payload, 'avatar', 12) || '👤';
+        const { name, avatar, note } = command.payload;
         const item: QueueItem = {
           id: `q_${randomBytes(6).toString('hex')}`,
-          participant: { id: command.participantId, name, avatar, joinedAt: now() },
+          participant: {
+            id: command.participantId,
+            name: name || 'Guest Participant',
+            avatar: avatar || '👤',
+            joinedAt: now(),
+          },
           raisedAt: now(),
-          note: stringPayload(payload, 'note', 160) || undefined,
+          note: note || undefined,
           allocatedSeconds: room.state.settings.defaultTimerSeconds,
         };
         room.state.queue.push(item);
@@ -344,12 +344,8 @@ export class MeetingStore {
         }
         break;
       case 'move-queue-item': {
-        const id = stringPayload(payload, 'queueItemId');
-        const direction = stringPayload(payload, 'direction');
-        if (!['up', 'down', 'top', 'bottom'].includes(direction)) {
-          return { ok: false, error: 'Unknown queue direction.' };
-        }
-        const index = room.state.queue.findIndex((item) => item.id === id);
+        const { queueItemId, direction } = command.payload;
+        const index = room.state.queue.findIndex((item) => item.id === queueItemId);
         if (index < 0) break;
         const [item] = room.state.queue.splice(index, 1);
         const target = direction === 'top' ? 0
@@ -360,27 +356,23 @@ export class MeetingStore {
         break;
       }
       case 'reorder-queue': {
-        const start = numberPayload(payload, 'startIndex', -1);
-        const end = numberPayload(payload, 'endIndex', -1);
-        if (!Number.isInteger(start) || !Number.isInteger(end)) {
-          return { ok: false, error: 'Queue positions must be whole numbers.' };
-        }
+        const { startIndex: start, endIndex: end } = command.payload;
         if (start < 0 || end < 0 || start >= room.state.queue.length || end >= room.state.queue.length) break;
         const [item] = room.state.queue.splice(start, 1);
         room.state.queue.splice(end, 0, item);
         break;
       }
       case 'dismiss-queue-item': {
-        const id = stringPayload(payload, 'queueItemId');
-        room.state.queue = room.state.queue.filter((item) => item.id !== id);
+        const { queueItemId } = command.payload;
+        room.state.queue = room.state.queue.filter((item) => item.id !== queueItemId);
         break;
       }
       case 'start-speaker':
         beginSpeaker(
           room,
-          stringPayload(payload, 'queueItemId') || undefined,
-          numberPayload(payload, 'secondsOverride') || undefined,
-          payload?.skipBuffer === true,
+          command.payload.queueItemId || undefined,
+          command.payload.secondsOverride || undefined,
+          command.payload.skipBuffer === true,
         );
         break;
       case 'skip-buffer':
@@ -399,31 +391,24 @@ export class MeetingStore {
         this.resumeTimer(room);
         break;
       case 'add-time':
-        this.addTime(room, numberPayload(payload, 'seconds'));
+        this.addTime(room, command.payload.seconds);
         break;
       case 'set-speaker-timer':
-        this.setSpeakerTimer(room, numberPayload(payload, 'seconds'));
+        this.setSpeakerTimer(room, command.payload.seconds);
         break;
       case 'finish-speaker': {
         const activeParticipantId = room.state.activeSpeaker?.queueItem.participant.id;
         if (!moderator && activeParticipantId !== command.participantId) {
           return { ok: false, error: 'Only the active speaker or moderator can finish this turn.' };
         }
-        const reason = stringPayload(payload, 'reason') as SpeakerHistoryItem['endedReason'];
-        finishSpeaker(room, ['completed', 'dismissed', 'skipped', 'manual'].includes(reason) ? reason : 'completed', moderator && payload?.autoAdvanceNext === true);
+        const { reason = 'completed', autoAdvanceNext } = command.payload;
+        finishSpeaker(room, reason, moderator && autoAdvanceNext === true);
         break;
       }
       case 'update-settings': {
-        const patch = (payload?.settings || {}) as SettingsPatch;
+        const { settings: patch, speakingTimeScope: scope } = command.payload;
         const next = { ...room.state.settings };
-        if (typeof patch.defaultTimerSeconds === 'number') {
-          if (!Number.isFinite(patch.defaultTimerSeconds)) {
-            return { ok: false, error: 'Speaking time must be a finite number.' };
-          }
-          const scope = payload?.speakingTimeScope;
-          if (scope !== undefined && scope !== 'existing-queue' && scope !== 'from-now-on') {
-            return { ok: false, error: 'Choose how to apply the speaking time.' };
-          }
+        if (patch.defaultTimerSeconds !== undefined) {
           next.defaultTimerSeconds = Math.max(1, Math.min(10_800, Math.round(patch.defaultTimerSeconds)));
           if (scope === 'existing-queue') {
             room.state.queue = room.state.queue.map((item) => ({
@@ -433,16 +418,16 @@ export class MeetingStore {
           }
           // A called speaker (including the transition buffer) keeps their allocated time.
         }
-        if (typeof patch.bufferSeconds === 'number') next.bufferSeconds = Math.max(0, Math.min(120, patch.bufferSeconds));
-        if (typeof patch.warningChimeSeconds === 'number') next.warningChimeSeconds = Math.max(0, Math.min(300, patch.warningChimeSeconds));
-        if (typeof patch.autoAdvance === 'boolean') {
+        if (patch.bufferSeconds !== undefined) next.bufferSeconds = Math.max(0, Math.min(120, patch.bufferSeconds));
+        if (patch.warningChimeSeconds !== undefined) next.warningChimeSeconds = Math.max(0, Math.min(300, patch.warningChimeSeconds));
+        if (patch.autoAdvance !== undefined) {
           next.autoAdvance = patch.autoAdvance;
           // Turning auto-advance off also cancels a hand-off already counting down.
           if (!patch.autoAdvance) room.autoAdvanceAt = undefined;
         }
-        if (typeof patch.soundEnabled === 'boolean') next.soundEnabled = patch.soundEnabled;
-        if (typeof patch.roomName === 'string' && patch.roomName.trim()) {
-          next.roomName = patch.roomName.trim().slice(0, 80);
+        if (patch.soundEnabled !== undefined) next.soundEnabled = patch.soundEnabled;
+        if (patch.roomName) {
+          next.roomName = patch.roomName;
           room.state.roomName = next.roomName;
         }
         room.state.settings = next;

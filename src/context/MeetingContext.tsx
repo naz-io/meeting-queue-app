@@ -12,6 +12,8 @@ import type {
 } from '../types';
 import type {
   ClientToServerEvents,
+  CommandPayloads,
+  MeetingCommand,
   MeetingCommandType,
   ServerToClientEvents,
   SpeakingTimeScope,
@@ -82,6 +84,9 @@ const DEFAULT_SETTINGS: SessionSettings = {
 };
 
 const MeetingContext = createContext<MeetingContextType | undefined>(undefined);
+
+type PayloadArgument<T extends MeetingCommandType> =
+  CommandPayloads[T] extends undefined ? [] : [payload: CommandPayloads[T]];
 
 export const AVATAR_OPTIONS = ['👨‍💼', '👩‍💼', '🦸‍♂️', '👩‍🔬', '👨‍🎨', '👩‍💻', '🚀', '⭐', '🦁', '🦉', '🦊', '🎨'];
 
@@ -263,7 +268,8 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [currentUserId, dropModeratorAccess, hasJoinedRoom, participantToken, roomCode]);
 
-  const emitCommand = (type: MeetingCommandType, payload?: Record<string, unknown>) => {
+  // The payload argument is required, forbidden or typed according to the command (see CommandPayloads).
+  const emitCommand = <T extends MeetingCommandType>(type: T, ...[payload]: PayloadArgument<T>) => {
     const socket = socketRef.current;
     if (!socket?.connected) {
       setConnectionError('You are offline. Wait for the meeting server to reconnect.');
@@ -279,7 +285,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       moderatorToken: sessionStorage.getItem(`${MODERATOR_TOKEN_KEY}_${roomCode}`) || undefined,
       type,
       payload,
-    }, (response) => {
+    } as MeetingCommand, (response) => {
       if (response.code === 'moderator-auth-required') dropModeratorAccess();
       else if (!response.ok) setConnectionError(response.error || 'The server rejected that action.');
     });

@@ -1,33 +1,46 @@
-import type { MeetingState, SessionSettings, UserRole } from './index';
+import type { MeetingState, SessionSettings, SpeakerHistoryItem, UserRole } from './index';
 
-export type MeetingCommandType =
-  | 'raise-hand'
-  | 'lower-hand'
-  | 'leave-meeting'
-  | 'move-queue-item'
-  | 'reorder-queue'
-  | 'dismiss-queue-item'
-  | 'start-speaker'
-  | 'skip-buffer'
-  | 'cancel-buffer'
-  | 'pause-timer'
-  | 'resume-timer'
-  | 'add-time'
-  | 'set-speaker-timer'
-  | 'finish-speaker'
-  | 'update-settings'
-  | 'reset-session'
-  | 'load-demo-data';
+export type QueueDirection = 'up' | 'down' | 'top' | 'bottom';
+export type SpeakerEndReason = SpeakerHistoryItem['endedReason'];
 
-export interface MeetingCommand {
+/**
+ * The payload each command carries; `undefined` means none.
+ * Adding a command here forces a matching validator in server/commands.ts.
+ */
+export interface CommandPayloads {
+  'raise-hand': { name?: string; avatar?: string; note?: string };
+  'lower-hand': undefined;
+  'leave-meeting': undefined;
+  'move-queue-item': { queueItemId: string; direction: QueueDirection };
+  'reorder-queue': { startIndex: number; endIndex: number };
+  'dismiss-queue-item': { queueItemId: string };
+  'start-speaker': { queueItemId?: string; secondsOverride?: number; skipBuffer?: boolean };
+  'skip-buffer': undefined;
+  'cancel-buffer': undefined;
+  'pause-timer': undefined;
+  'resume-timer': undefined;
+  'add-time': { seconds: number };
+  'set-speaker-timer': { seconds: number };
+  'finish-speaker': { reason?: SpeakerEndReason; autoAdvanceNext?: boolean };
+  'update-settings': { settings: SettingsPatch; speakingTimeScope?: SpeakingTimeScope };
+  'reset-session': undefined;
+  'load-demo-data': undefined;
+}
+
+export type MeetingCommandType = keyof CommandPayloads;
+
+interface CommandEnvelope {
   id: string;
   roomCode: string;
   participantId: string;
   participantToken: string;
   moderatorToken?: string;
-  type: MeetingCommandType;
-  payload?: Record<string, unknown>;
 }
+
+/** One variant per command type, so `switch (command.type)` narrows `payload` (like a sealed class). */
+export type MeetingCommand = {
+  [T in MeetingCommandType]: CommandEnvelope & { type: T; payload: CommandPayloads[T] };
+}[MeetingCommandType];
 
 export interface JoinRoomRequest {
   roomCode: string;
