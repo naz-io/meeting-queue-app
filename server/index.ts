@@ -125,7 +125,8 @@ io.on('connection', (socket) => {
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const distDirectory = path.resolve(directory, '../dist');
 app.use(express.static(distDirectory));
-app.use((_request, response) => response.sendFile(path.join(distDirectory, 'index.html')));
+// `root` keeps send's dotfile check off the parent folders (e.g. a checkout under ~/.config).
+app.use((_request, response) => response.sendFile('index.html', { root: distDirectory }));
 
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Meeting Queue server listening on http://localhost:${port}`);
