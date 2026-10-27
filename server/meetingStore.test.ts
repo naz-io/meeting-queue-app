@@ -1,45 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { test, type TestContext } from 'node:test';
+import { test } from 'node:test';
 import { MeetingStore } from './meetingStore.ts';
-import type { MeetingCommandType } from '../src/types/realtime.ts';
-
-function tempDataDirectory(t: TestContext) {
-  const directory = mkdtempSync(path.join(tmpdir(), 'meeting-store-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  return directory;
-}
-
-function openRoom(store: MeetingStore, roomCode: string) {
-  const opened = store.openRoom(roomCode);
-  assert.ok(opened.ok, `could not open ${roomCode}`);
-  return opened.room;
-}
-
-function setup(t: TestContext) {
-  // Fake timers keep debounced saves from firing; the temp directory keeps real data safe if one does.
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-  const dataDirectory = tempDataDirectory(t);
-  const broadcasts: unknown[] = [];
-  const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)), { moderatorPin: '7892', dataDirectory });
-  const room = openRoom(store, 'TEST-ROOM');
-  const moderatorToken = store.authenticateModerator('TEST-ROOM', '7892')!;
-  let sequence = 0;
-  const command = (type: MeetingCommandType, payload = {}, participantId = 'moderator', authorized = true) =>
-    store.handleCommand({
-      id: String(++sequence), roomCode: 'TEST-ROOM', participantId,
-      participantToken: `token-${participantId}`,
-      moderatorToken: authorized ? moderatorToken : undefined,
-      type, payload,
-    });
-  const raise = (id: string) => command('raise-hand', { name: id }, id);
-  const change = (seconds: number, scope?: string) => command('update-settings', {
-    settings: { defaultTimerSeconds: seconds }, speakingTimeScope: scope,
-  });
-  return { store, room, command, raise, change, broadcasts, dataDirectory, moderatorToken };
-}
+import { openRoom, setup, tempDataDirectory } from './testSupport.ts';
 
 test('existing queue changes preserve order and identity and reach subscribers', (t) => {
   const { room, raise, change, broadcasts } = setup(t);
