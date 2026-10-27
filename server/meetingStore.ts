@@ -8,7 +8,8 @@ const DEFAULT_ROOM_CODE = 'MEET-7892';
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
 const DEFAULT_MODERATOR_PIN = process.env.MODERATOR_PIN || '7892';
 const ROOM_CODE_PATTERN = /^[A-Z0-9-]{4,24}$/;
-const DEFAULT_DATA_DIRECTORY = path.resolve(process.cwd(), 'server/data');
+// Next to this file, so starting the server from another folder still uses the same data.
+const DEFAULT_DATA_DIRECTORY = path.join(import.meta.dirname, 'data');
 
 interface RoomRecord extends PersistedRoom {
   processedCommands: string[];
