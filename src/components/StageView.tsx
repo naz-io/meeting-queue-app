@@ -1,5 +1,6 @@
 import React from 'react';
 import { useMeeting } from '../context/MeetingContext';
+import { useCountdown } from '../context/CountdownContext';
 import { QRCodeSVG } from 'qrcode.react';
 import { TimerRing } from './TimerRing';
 import { Sparkles, Users, QrCode, Hourglass, Mic, ArrowRight, ListOrdered } from 'lucide-react';
@@ -7,6 +8,7 @@ import { getJoinUrl } from '../utils/joinUrl';
 
 export const StageView: React.FC = () => {
   const { roomName, roomCode, publicBaseUrl, activeSpeaker, speakerBuffer, queue } = useMeeting();
+  const { speakerSeconds, bufferSeconds } = useCountdown();
 
   const joinUrl = getJoinUrl(roomCode, publicBaseUrl);
   const upNext = speakerBuffer?.queueItem ?? queue[0] ?? null;
@@ -66,7 +68,7 @@ export const StageView: React.FC = () => {
                 <div className="w-56 h-56 rounded-full border-8 border-amber-500/30 flex items-center justify-center bg-slate-950/80 shadow-2xl shadow-amber-500/20 animate-pulse">
                   <div className="text-center">
                     <span className="font-mono font-black text-7xl text-amber-400">
-                      {speakerBuffer.remainingBufferSeconds}
+                      {bufferSeconds}
                     </span>
                     <span className="block text-xs uppercase tracking-widest text-slate-400 mt-1 font-bold">
                       Seconds
@@ -97,7 +99,7 @@ export const StageView: React.FC = () => {
 
               <div className="flex justify-center my-4">
                 <TimerRing
-                  remainingSeconds={activeSpeaker.remainingSeconds}
+                  remainingSeconds={speakerSeconds}
                   totalSeconds={activeSpeaker.totalDurationSeconds}
                   isPaused={activeSpeaker.isPaused}
                   size={300}
@@ -188,7 +190,7 @@ export const StageView: React.FC = () => {
                 </span>
                 {speakerBuffer && (
                   <span className="rounded-full bg-amber-500/20 px-2 py-0.5 font-mono text-[11px] tracking-normal">
-                    {speakerBuffer.remainingBufferSeconds}s
+                    {bufferSeconds}s
                   </span>
                 )}
               </h3>

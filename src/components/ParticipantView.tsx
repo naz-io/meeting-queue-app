@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useMeeting } from '../context/MeetingContext';
+import { useCountdown } from '../context/CountdownContext';
 import { Hand, HandMetal, CheckCircle2, Clock, Sparkles, MessageSquare, AlertCircle, Hourglass, Mic } from 'lucide-react';
 import { TimerRing } from './TimerRing';
 
@@ -21,6 +22,7 @@ export const ParticipantView: React.FC = () => {
     getParticipantTotalSpokenSeconds,
     getParticipantTurnCount,
   } = useMeeting();
+  const { speakerSeconds, bufferSeconds } = useCountdown();
 
   const [topicNote, setTopicNote] = useState('');
   const [, setClockTick] = useState(0);
@@ -47,9 +49,9 @@ export const ParticipantView: React.FC = () => {
 
   const speakersAhead = isUserInQueue ? queue.slice(0, Math.max(0, userQueuePosition - 1)) : [];
   const estimatedWaitSeconds = isUserInQueue
-    ? (activeSpeaker?.remainingSeconds ?? 0)
+    ? (speakerSeconds)
       + (speakerBuffer
-        ? speakerBuffer.remainingBufferSeconds + speakerBuffer.allocatedSpeakerSeconds
+        ? bufferSeconds + speakerBuffer.allocatedSpeakerSeconds
         : 0)
       + speakersAhead.reduce((total, item) => total + item.allocatedSeconds, 0)
       + settings.bufferSeconds * userQueuePosition
@@ -117,7 +119,7 @@ export const ParticipantView: React.FC = () => {
             <div className="relative flex flex-col items-center justify-center rounded-full p-2">
               <div className="w-44 h-44 rounded-full border-4 border-amber-500/30 flex items-center justify-center bg-slate-900/90 shadow-2xl shadow-amber-500/20 animate-pulse">
                 <span className="font-mono font-black text-5xl text-amber-400">
-                  {speakerBuffer.remainingBufferSeconds}s
+                  {bufferSeconds}s
                 </span>
               </div>
             </div>
@@ -140,7 +142,7 @@ export const ParticipantView: React.FC = () => {
 
           <div className="flex justify-center my-4">
             <TimerRing
-              remainingSeconds={activeSpeaker.remainingSeconds}
+              remainingSeconds={speakerSeconds}
               totalSeconds={activeSpeaker.totalDurationSeconds}
               isPaused={activeSpeaker.isPaused}
               size={240}
@@ -249,7 +251,7 @@ export const ParticipantView: React.FC = () => {
           </div>
           <div className="text-right">
             <span className="font-mono font-bold text-2xl text-amber-400">
-              {speakerBuffer.remainingBufferSeconds}s
+              {bufferSeconds}s
             </span>
             <span className="block text-[10px] text-slate-400 uppercase">Starting soon</span>
           </div>
@@ -276,9 +278,9 @@ export const ParticipantView: React.FC = () => {
 
           <div className="text-right">
             <span className="font-mono font-bold text-2xl text-indigo-300">
-              {Math.floor(activeSpeaker.remainingSeconds / 60)}:
-              {activeSpeaker.remainingSeconds % 60 < 10 ? '0' : ''}
-              {activeSpeaker.remainingSeconds % 60}
+              {Math.floor(speakerSeconds / 60)}:
+              {speakerSeconds % 60 < 10 ? '0' : ''}
+              {speakerSeconds % 60}
             </span>
             <span className="block text-xs text-slate-500">Remaining</span>
           </div>

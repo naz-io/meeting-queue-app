@@ -1,6 +1,5 @@
 /* oxlint-disable react/only-export-components -- Provider, hook, and avatar options form one public context module. */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import confetti from 'canvas-confetti';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ActiveSpeaker,
@@ -22,15 +21,16 @@ import type {
 import { soundManager } from '../utils/sound';
 import { DEFAULT_ROOM_CODE, parseRoomCode } from '../../shared/roomCode';
 import { totalSpokenSeconds, turnCount } from '../utils/speakingStats';
-import { useLiveSeconds } from './useLiveSeconds';
+import { CountdownProvider } from './CountdownContext';
 
 interface MeetingContextType {
   roomCode: string;
   roomName: string;
   publicBaseUrl: string;
   queue: QueueItem[];
-  activeSpeaker: ActiveSpeaker | null;
-  speakerBuffer: SpeakerBuffer | null;
+  /** Remaining time is left out on purpose: read it from useCountdown(), which stays live. */
+  activeSpeaker: Omit<ActiveSpeaker, 'remainingSeconds'> | null;
+  speakerBuffer: Omit<SpeakerBuffer, 'remainingBufferSeconds'> | null;
   history: SpeakerHistoryItem[];
   settings: SessionSettings;
   activeView: UserRole;
@@ -332,35 +332,6 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const getParticipantTotalSpokenSeconds = (participantId?: string, name?: string) => totalSpokenSeconds(history, participantId, name);
   const getParticipantTurnCount = (participantId?: string, name?: string) => turnCount(history, participantId, name);
 
-  // The server sends timers as end times; each device counts down itself (see useLiveSeconds).
-  const speakerSeconds = useLiveSeconds(activeSpeaker, activeSpeaker?.remainingSeconds ?? 0, serverOffsetMs);
-  const bufferSeconds = useLiveSeconds(speakerBuffer, speakerBuffer?.remainingBufferSeconds ?? 0, serverOffsetMs);
-  const liveSpeaker = useMemo(
-    () => activeSpeaker && { ...activeSpeaker, remainingSeconds: speakerSeconds },
-    [activeSpeaker, speakerSeconds],
-  );
-  const liveBuffer = useMemo(
-    () => speakerBuffer && { ...speakerBuffer, remainingBufferSeconds: bufferSeconds },
-    [speakerBuffer, bufferSeconds],
-  );
-
-  // Warning chime and time-up alert, on the moderator and stage screens only.
-  const lastCountdownRef = useRef<{ queueItemId: string; seconds: number } | null>(null);
-  useEffect(() => {
-    const previous = lastCountdownRef.current;
-    lastCountdownRef.current = liveSpeaker ? { queueItemId: liveSpeaker.queueItem.id, seconds: liveSpeaker.remainingSeconds } : null;
-    const presentationDevice = activeViewState === 'moderator' || activeViewState === 'stage';
-    if (!presentationDevice || !previous || !liveSpeaker || previous.queueItemId !== liveSpeaker.queueItem.id) return;
-
-    const seconds = liveSpeaker.remainingSeconds;
-    const warning = settings.warningChimeSeconds;
-    if (previous.seconds > warning && seconds <= warning && seconds > 0) soundManager.playWarningChime();
-    if (previous.seconds > 0 && seconds === 0) {
-      soundManager.playTimerEndAlert();
-      confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
-    }
-  }, [activeViewState, liveSpeaker, settings.warningChimeSeconds]);
-
   const isUserInQueue = queue.some((item) => item.participant.id === currentUserId);
   const userQueuePosition = queue.findIndex((item) => item.participant.id === currentUserId) + 1;
 
@@ -369,8 +340,8 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     roomName,
     publicBaseUrl,
     queue,
-    activeSpeaker: liveSpeaker,
-    speakerBuffer: liveBuffer,
+    activeSpeaker,
+    speakerBuffer,
     history,
     settings,
     activeView: activeViewState,
@@ -410,12 +381,24 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Action functions intentionally close over the latest render state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
-    roomCode, roomName, publicBaseUrl, queue, liveSpeaker, liveBuffer, history, settings, activeViewState,
+    roomCode, roomName, publicBaseUrl, queue, activeSpeaker, speakerBuffer, history, settings, activeViewState,
     currentUserId, currentUserName, currentUserAvatar, connected, reconnecting, connectionError,
     isModerator, hasJoinedRoom, isUserInQueue, userQueuePosition,
   ]);
 
-  return <MeetingContext.Provider value={value}>{children}</MeetingContext.Provider>;
+  return (
+    <MeetingContext.Provider value={value}>
+      <CountdownProvider
+        activeSpeaker={activeSpeaker}
+        speakerBuffer={speakerBuffer}
+        serverOffsetMs={serverOffsetMs}
+        warningChimeSeconds={settings.warningChimeSeconds}
+        playsAlerts={activeViewState === 'moderator' || activeViewState === 'stage'}
+      >
+        {children}
+      </CountdownProvider>
+    </MeetingContext.Provider>
+  );
 };
 
 export const useMeeting = () => {

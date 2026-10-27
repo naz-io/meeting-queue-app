@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Play, Pause, CheckCircle, XCircle, Flame, Sparkles, Timer, Hourglass, FastForward } from 'lucide-react';
 import { useMeeting } from '../../context/MeetingContext';
+import { useCountdown } from '../../context/CountdownContext';
 import { TimerRing } from '../TimerRing';
 
 export const FloorControl: React.FC = () => {
@@ -20,6 +21,7 @@ export const FloorControl: React.FC = () => {
     getParticipantTotalSpokenSeconds,
     getParticipantTurnCount,
   } = useMeeting();
+  const { speakerSeconds, bufferSeconds } = useCountdown();
 
   const [customActiveMins, setCustomActiveMins] = useState<string>('2');
   const [customActiveSecs, setCustomActiveSecs] = useState<string>('0');
@@ -85,7 +87,7 @@ export const FloorControl: React.FC = () => {
             <div className="flex flex-col items-center gap-3 shrink-0">
               <div className="w-32 h-32 rounded-full border-4 border-amber-500/40 flex items-center justify-center bg-slate-950/80 shadow-2xl shadow-amber-500/20 animate-pulse">
                 <span className="font-mono font-black text-4xl text-amber-400">
-                  {speakerBuffer.remainingBufferSeconds}s
+                  {bufferSeconds}s
                 </span>
               </div>
 
@@ -250,7 +252,7 @@ export const FloorControl: React.FC = () => {
         {activeSpeaker && !speakerBuffer && (
           <div className="flex flex-col items-center gap-4 shrink-0">
             <TimerRing
-              remainingSeconds={activeSpeaker.remainingSeconds}
+              remainingSeconds={speakerSeconds}
               totalSeconds={activeSpeaker.totalDurationSeconds}
               isPaused={activeSpeaker.isPaused}
               size={210}
