@@ -1,13 +1,23 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { MeetingStore } from './meetingStore.ts';
 import type { MeetingCommandType } from '../src/types/realtime.ts';
 
+function tempDataDirectory(t: TestContext) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'meeting-store-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  return directory;
+}
+
 function setup(t: TestContext) {
-  // Prevent persistence timers from touching the real meeting data.
+  // Fake timers keep debounced saves from firing; the temp directory keeps real data safe if one does.
   t.mock.timers.enable({ apis: ['setTimeout'] });
+  const dataDirectory = tempDataDirectory(t);
   const broadcasts: unknown[] = [];
-  const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)));
+  const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)), { dataDirectory });
   const room = store.getRoom('TEST-ROOM');
   let sequence = 0;
   const command = (type: MeetingCommandType, payload = {}, participantId = 'moderator', authorized = true) =>

@@ -8,15 +8,17 @@ const DEFAULT_ROOM_CODE = 'MEET-7892';
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
 const DEFAULT_MODERATOR_PIN = process.env.MODERATOR_PIN || '7892';
 const ROOM_CODE_PATTERN = /^[A-Z0-9-]{4,24}$/;
-const DATA_DIRECTORY = path.resolve(process.cwd(), 'server/data');
-const DATA_FILE = path.join(DATA_DIRECTORY, 'meetings.json');
-const TEMP_DATA_FILE = path.join(DATA_DIRECTORY, 'meetings.json.tmp');
+const DEFAULT_DATA_DIRECTORY = path.resolve(process.cwd(), 'server/data');
 
 interface RoomRecord extends PersistedRoom {
   processedCommands: string[];
 }
 
 type Broadcast = (roomCode: string, state: MeetingState) => void;
+
+interface MeetingStoreOptions {
+  dataDirectory?: string;
+}
 
 const now = () => Date.now();
 
@@ -149,14 +151,20 @@ export class MeetingStore {
   private rooms = new Map<string, RoomRecord>();
   private persistTimer: NodeJS.Timeout | null = null;
   private broadcast: Broadcast;
+  private dataDirectory: string;
+  private dataFile: string;
+  private tempDataFile: string;
 
-  constructor(broadcast: Broadcast) {
+  constructor(broadcast: Broadcast, options: MeetingStoreOptions = {}) {
     this.broadcast = broadcast;
+    this.dataDirectory = options.dataDirectory ?? DEFAULT_DATA_DIRECTORY;
+    this.dataFile = path.join(this.dataDirectory, 'meetings.json');
+    this.tempDataFile = path.join(this.dataDirectory, 'meetings.json.tmp');
   }
 
   async initialize() {
     try {
-      const raw = await readFile(DATA_FILE, 'utf8');
+      const raw = await readFile(this.dataFile, 'utf8');
       const persisted = JSON.parse(raw) as Record<string, PersistedRoom>;
       for (const [code, room] of Object.entries(persisted)) {
         this.rooms.set(code, { ...room, participantTokens: room.participantTokens || {}, processedCommands: [] });
@@ -506,9 +514,9 @@ export class MeetingStore {
       };
     }
     try {
-      await mkdir(DATA_DIRECTORY, { recursive: true });
-      await writeFile(TEMP_DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
-      await rename(TEMP_DATA_FILE, DATA_FILE);
+      await mkdir(this.dataDirectory, { recursive: true });
+      await writeFile(this.tempDataFile, JSON.stringify(data, null, 2), 'utf8');
+      await rename(this.tempDataFile, this.dataFile);
     } catch (error) {
       console.error('Could not persist meeting state:', error);
     }
