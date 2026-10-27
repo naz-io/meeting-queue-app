@@ -1,5 +1,5 @@
 /* oxlint-disable react/only-export-components -- Provider, hook, and avatar options form one public context module. */
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { io, type Socket } from 'socket.io-client';
 import type {
@@ -159,6 +159,14 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     activeViewRef.current = activeViewState;
   }, [activeViewState]);
 
+  // The server no longer accepts this device's moderator token (expired or PIN changed).
+  const dropModeratorAccess = useCallback(() => {
+    sessionStorage.removeItem(`${MODERATOR_TOKEN_KEY}_${roomCode}`);
+    setIsModerator(false);
+    if (activeViewRef.current === 'moderator') setActiveViewState('participant');
+    setConnectionError('Your moderator session has ended. Select Moderator and enter the PIN again.');
+  }, [roomCode]);
+
   useEffect(() => {
     if (!hasJoinedRoom) {
       setConnected(false);
@@ -225,10 +233,14 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         applyState(response.state);
         if (response.publicBaseUrl) setPublicBaseUrl(response.publicBaseUrl);
-        setIsModerator(Boolean(response.moderatorAuthorized));
         setConnected(true);
         setReconnecting(false);
-        setConnectionError(null);
+        if (moderatorToken && !response.moderatorAuthorized) {
+          dropModeratorAccess();
+        } else {
+          setIsModerator(Boolean(response.moderatorAuthorized));
+          setConnectionError(null);
+        }
       });
     };
 
@@ -249,7 +261,7 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [currentUserId, hasJoinedRoom, participantToken, roomCode]);
+  }, [currentUserId, dropModeratorAccess, hasJoinedRoom, participantToken, roomCode]);
 
   const emitCommand = (type: MeetingCommandType, payload?: Record<string, unknown>) => {
     const socket = socketRef.current;
@@ -268,7 +280,8 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       type,
       payload,
     }, (response) => {
-      if (!response.ok) setConnectionError(response.error || 'The server rejected that action.');
+      if (response.code === 'moderator-auth-required') dropModeratorAccess();
+      else if (!response.ok) setConnectionError(response.error || 'The server rejected that action.');
     });
   };
 

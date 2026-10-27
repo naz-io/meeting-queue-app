@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -14,24 +14,25 @@ function tempDataDirectory(t: TestContext) {
 
 function setup(t: TestContext) {
   // Fake timers keep debounced saves from firing; the temp directory keeps real data safe if one does.
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const dataDirectory = tempDataDirectory(t);
   const broadcasts: unknown[] = [];
   const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)), { moderatorPin: '7892', dataDirectory });
   const room = store.getRoom('TEST-ROOM');
+  const moderatorToken = store.authenticateModerator('TEST-ROOM', '7892')!;
   let sequence = 0;
   const command = (type: MeetingCommandType, payload = {}, participantId = 'moderator', authorized = true) =>
     store.handleCommand({
       id: String(++sequence), roomCode: 'TEST-ROOM', participantId,
       participantToken: `token-${participantId}`,
-      moderatorToken: authorized ? room.moderatorToken : undefined,
+      moderatorToken: authorized ? moderatorToken : undefined,
       type, payload,
     });
   const raise = (id: string) => command('raise-hand', { name: id }, id);
   const change = (seconds: number, scope?: string) => command('update-settings', {
     settings: { defaultTimerSeconds: seconds }, speakingTimeScope: scope,
   });
-  return { store, room, command, raise, change, broadcasts, dataDirectory };
+  return { store, room, command, raise, change, broadcasts, dataDirectory, moderatorToken };
 }
 
 test('existing queue changes preserve order and identity and reach subscribers', (t) => {
@@ -148,4 +149,59 @@ test('moderator PIN must be the exact string', (t) => {
   for (const wrong of ['789', '78920', '', 7892, null, { pin: '7892' }]) {
     assert.equal(store.authenticateModerator('TEST-ROOM', wrong), null);
   }
+});
+
+test('moderator tokens expire after 12 hours', async (t) => {
+  const { store, command, moderatorToken } = setup(t);
+  assert.equal(store.isModerator('TEST-ROOM', moderatorToken), true);
+  t.mock.timers.tick(12 * 60 * 60 * 1000 - 1);
+  assert.equal(store.isModerator('TEST-ROOM', moderatorToken), true);
+  t.mock.timers.tick(1);
+  assert.equal(store.isModerator('TEST-ROOM', moderatorToken), false);
+  const response = command('reset-session');
+  assert.equal(response.ok, false);
+  assert.equal(response.code, 'moderator-auth-required');
+  // Advancing the clock fired the debounced save; let it finish before the temp folder is removed.
+  await store.flush();
+});
+
+test('each login gets its own token and others stay valid', (t) => {
+  const { store, moderatorToken } = setup(t);
+  const second = store.authenticateModerator('TEST-ROOM', '7892');
+  assert.ok(second && second !== moderatorToken);
+  assert.equal(store.isModerator('TEST-ROOM', moderatorToken), true);
+  assert.equal(store.isModerator('TEST-ROOM', second), true);
+  assert.equal(store.isModerator('OTHER-ROOM', second), false);
+  for (const bogus of [undefined, '', 'guess', 42]) assert.equal(store.isModerator('TEST-ROOM', bogus), false);
+});
+
+test('sessions survive a restart but not a PIN change', async (t) => {
+  const { store, dataDirectory, moderatorToken } = setup(t);
+  await store.flush();
+  const saved = readFileSync(path.join(dataDirectory, 'meetings.json'), 'utf8');
+  assert.equal(saved.includes(moderatorToken), false, 'raw tokens are never written to disk');
+
+  const restarted = new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory });
+  await restarted.initialize();
+  assert.equal(restarted.isModerator('TEST-ROOM', moderatorToken), true);
+
+  const newPin = new MeetingStore(() => {}, { moderatorPin: '135790', dataDirectory });
+  await newPin.initialize();
+  assert.equal(newPin.isModerator('TEST-ROOM', moderatorToken), false);
+});
+
+test('files with the old single moderator token load and sign everyone out', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const dataDirectory = tempDataDirectory(t);
+  const legacy = new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory }).getRoom('OLD-ROOM');
+  writeFileSync(path.join(dataDirectory, 'meetings.json'), JSON.stringify({
+    'OLD-ROOM': { state: legacy.state, moderatorToken: 'legacy-token', participantTokens: { p1: 't1' } },
+  }));
+  const store = new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory });
+  await store.initialize();
+  const room = store.getRoom('OLD-ROOM');
+  assert.equal(store.isModerator('OLD-ROOM', 'legacy-token'), false);
+  assert.deepEqual(room.moderatorSessions, {});
+  assert.deepEqual(room.participantTokens, { p1: 't1' });
+  assert.equal('moderatorToken' in room, false);
 });

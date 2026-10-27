@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { MeetingState, QueueItem, SpeakerHistoryItem } from '../src/types/index.ts';
@@ -6,6 +6,8 @@ import type { MeetingCommand, PersistedRoom, SettingsPatch } from '../src/types/
 
 const DEFAULT_ROOM_CODE = 'MEET-7892';
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
+const MODERATOR_SESSION_MS = 12 * 60 * 60 * 1000;
+const MAX_MODERATOR_SESSIONS = 20;
 const ROOM_CODE_PATTERN = /^[A-Z0-9-]{4,24}$/;
 // Next to this file, so starting the server from another folder still uses the same data.
 const DEFAULT_DATA_DIRECTORY = path.join(import.meta.dirname, 'data');
@@ -177,7 +179,14 @@ export class MeetingStore {
       const raw = await readFile(this.dataFile, 'utf8');
       const persisted = JSON.parse(raw) as Record<string, PersistedRoom>;
       for (const [code, room] of Object.entries(persisted)) {
-        this.rooms.set(code, { ...room, participantTokens: room.participantTokens || {}, processedCommands: [] });
+        // Rebuilt field by field so the pre-sessions `moderatorToken` is dropped, signing everyone out once.
+        this.rooms.set(code, {
+          state: room.state,
+          moderatorSessions: room.moderatorSessions || {},
+          participantTokens: room.participantTokens || {},
+          autoAdvanceAt: room.autoAdvanceAt,
+          processedCommands: [],
+        });
       }
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -194,7 +203,7 @@ export class MeetingStore {
     if (!room) {
       room = {
         state: createEmptyState(roomCode),
-        moderatorToken: randomToken(),
+        moderatorSessions: {},
         participantTokens: {},
         processedCommands: [],
       };
@@ -210,7 +219,15 @@ export class MeetingStore {
 
   authenticateModerator(roomCode: string, pin: unknown) {
     if (typeof pin !== 'string' || !sameSecret(pin, this.moderatorPin)) return null;
-    return this.getRoom(roomCode).moderatorToken;
+    const room = this.getRoom(roomCode);
+    const token = randomToken();
+    const sessions = Object.entries(room.moderatorSessions)
+      .filter(([, expiresAt]) => expiresAt > now())
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, MAX_MODERATOR_SESSIONS - 1);
+    room.moderatorSessions = Object.fromEntries([[this.sessionKey(token), now() + MODERATOR_SESSION_MS], ...sessions]);
+    this.schedulePersist();
+    return token;
   }
 
   authorizeParticipant(roomCode: string, participantId: string, participantToken: string) {
@@ -225,8 +242,15 @@ export class MeetingStore {
     return true;
   }
 
-  isModerator(roomCode: string, token?: string) {
-    return Boolean(token && token === this.getRoom(roomCode).moderatorToken);
+  isModerator(roomCode: string, token?: unknown) {
+    if (typeof token !== 'string' || !token) return false;
+    const expiresAt = this.getRoom(roomCode).moderatorSessions[this.sessionKey(token)];
+    return expiresAt !== undefined && expiresAt > now();
+  }
+
+  /** Keyed by the PIN, so changing MODERATOR_PIN invalidates every existing session. */
+  private sessionKey(token: string) {
+    return createHmac('sha256', this.moderatorPin).update(token).digest('hex');
   }
 
   handleCommand(command: MeetingCommand) {
@@ -239,7 +263,9 @@ export class MeetingStore {
 
     const moderatorOnly = !['raise-hand', 'lower-hand', 'leave-meeting', 'finish-speaker'].includes(command.type);
     const moderator = this.isModerator(command.roomCode, command.moderatorToken);
-    if (moderatorOnly && !moderator) return { ok: false, error: 'Moderator authorization required.' };
+    if (moderatorOnly && !moderator) {
+      return { ok: false, error: 'Moderator authorization required.', code: 'moderator-auth-required' as const };
+    }
 
     const payload = command.payload;
     switch (command.type) {
@@ -540,7 +566,7 @@ export class MeetingStore {
     for (const [code, room] of this.rooms) {
       data[code] = {
         state: room.state,
-        moderatorToken: room.moderatorToken,
+        moderatorSessions: room.moderatorSessions,
         participantTokens: room.participantTokens,
         autoAdvanceAt: room.autoAdvanceAt,
       };

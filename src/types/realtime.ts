@@ -53,6 +53,8 @@ export interface ModeratorAuthResponse {
 export interface CommandResponse {
   ok: boolean;
   error?: string;
+  /** Set when the moderator token is missing, expired or revoked. */
+  code?: 'moderator-auth-required';
 }
 
 export interface ServerToClientEvents {
@@ -77,7 +79,8 @@ export interface MeetingConnectionState {
 
 export interface PersistedRoom {
   state: MeetingState;
-  moderatorToken: string;
+  /** HMAC(PIN, token) → expiry time; the tokens themselves are never stored. */
+  moderatorSessions: Record<string, number>;
   participantTokens: Record<string, string>;
   autoAdvanceAt?: number;
 }

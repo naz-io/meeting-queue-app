@@ -135,8 +135,9 @@ io.on('connection', (socket) => {
 
   socket.on('meeting-command', (command, callback) => {
     const response = store.handleCommand(command);
-    callback?.(response);
-    if (!response.ok && response.error) socket.emit('server-error', response.error);
+    // Clients that pass a callback get the error there; the event is for those that don't.
+    if (callback) callback(response);
+    else if (!response.ok && response.error) socket.emit('server-error', response.error);
   });
 });
 
