@@ -6,7 +6,7 @@ import type {
   SettingsPatch,
   SpeakerEndReason,
   SpeakingTimeScope,
-} from '../src/types/realtime.ts';
+} from '../shared/protocol.ts';
 
 // Hand-written runtime checks for data arriving over the socket. TypeScript types vanish at
 // runtime, so everything here starts from `unknown` and either returns typed data or an error.

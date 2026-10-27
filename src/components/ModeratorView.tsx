@@ -24,7 +24,7 @@ import {
 
 import { TimerRing } from './TimerRing';
 import { QRCodeModal } from './QRCodeModal';
-import type { SpeakingTimeScope } from '../types/realtime';
+import type { SpeakingTimeScope } from '../../shared/protocol';
 import { historyToCsv } from '../utils/csv';
 
 export const ModeratorView: React.FC = () => {

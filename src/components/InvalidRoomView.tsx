@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowRight, TriangleAlert } from 'lucide-react';
-import { DEFAULT_ROOM_CODE } from '../utils/roomCode';
+import { DEFAULT_ROOM_CODE } from '../../shared/roomCode';
 
 export const InvalidRoomView: React.FC<{ roomCode: string }> = ({ roomCode }) => {
   const defaultRoomUrl = `${window.location.pathname}?room=${DEFAULT_ROOM_CODE}`;

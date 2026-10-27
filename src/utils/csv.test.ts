@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { csvCell, historyToCsv } from './csv.ts';
-import type { SpeakerHistoryItem } from '../types/index.ts';
+import type { SpeakerHistoryItem } from '../../shared/meeting.ts';
 
 const entry = (participantName: string): SpeakerHistoryItem => ({
   id: 'h_1',

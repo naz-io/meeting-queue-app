@@ -6,7 +6,7 @@ import { ModeratorView } from './components/ModeratorView';
 import { StageView } from './components/StageView';
 import { JoinRoomView } from './components/JoinRoomView';
 import { InvalidRoomView } from './components/InvalidRoomView';
-import { parseRoomCode } from './utils/roomCode';
+import { parseRoomCode } from '../shared/roomCode';
 import { ArrowRight, ExternalLink, Info, LogOut, Wifi, WifiOff } from 'lucide-react';
 
 const BACK_GUARD_KEY = 'meetingQueueParticipantGuard';

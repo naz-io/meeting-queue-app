@@ -1,4 +1,4 @@
-import type { SpeakerHistoryItem } from '../types/index.ts';
+import type { SpeakerHistoryItem } from '../../shared/meeting.ts';
 
 /**
  * Whether a history entry belongs to this participant. Entries carry the participant ID, so two

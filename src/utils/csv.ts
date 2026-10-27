@@ -1,4 +1,4 @@
-import type { SpeakerHistoryItem } from '../types/index.ts';
+import type { SpeakerHistoryItem } from '../../shared/meeting.ts';
 
 // Spreadsheet apps run cells starting with these characters as formulas.
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;

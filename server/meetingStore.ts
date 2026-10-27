@@ -1,9 +1,9 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { MeetingState, QueueItem, SpeakerHistoryItem } from '../src/types/index.ts';
-import type { MeetingCommandType, PersistedRoom } from '../src/types/realtime.ts';
-import { DEFAULT_ROOM_CODE, parseRoomCode } from '../src/utils/roomCode.ts';
+import type { MeetingState, QueueItem, SpeakerHistoryItem } from '../shared/meeting.ts';
+import type { MeetingCommandType, PersistedRoom } from '../shared/protocol.ts';
+import { DEFAULT_ROOM_CODE, parseRoomCode } from '../shared/roomCode.ts';
 import { parseCommand } from './commands.ts';
 
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
@@ -52,21 +52,16 @@ function createEmptyState(roomCode: string): MeetingState {
       roomName: DEFAULT_ROOM_NAME,
       roomCode,
     },
-    activeView: 'participant',
-    currentUserId: '',
-    currentUserName: '',
-    currentUserAvatar: '',
   };
 }
 
-function publicState(state: MeetingState): MeetingState {
-  return {
-    ...state,
-    activeView: 'participant',
-    currentUserId: '',
-    currentUserName: '',
-    currentUserAvatar: '',
-  };
+/** Per-device fields that MeetingState once carried; files saved before their removal still have them. */
+const LEGACY_DEVICE_FIELDS = ['activeView', 'currentUserId', 'currentUserName', 'currentUserAvatar'];
+
+function withoutLegacyDeviceFields(state: MeetingState): MeetingState {
+  const copy: Record<string, unknown> = { ...state };
+  for (const field of LEGACY_DEVICE_FIELDS) delete copy[field];
+  return copy as unknown as MeetingState;
 }
 
 /** Constant-time comparison, so response timing never hints at how close a guess was. */
@@ -176,7 +171,7 @@ export class MeetingStore {
       for (const [code, room] of Object.entries(persisted)) {
         // Rebuilt field by field so the pre-sessions `moderatorToken` is dropped, signing everyone out once.
         this.rooms.set(code, {
-          state: room.state,
+          state: withoutLegacyDeviceFields(room.state),
           moderatorSessions: room.moderatorSessions || {},
           participantTokens: room.participantTokens || {},
           autoAdvanceAt: room.autoAdvanceAt,
@@ -213,7 +208,7 @@ export class MeetingStore {
 
   getSnapshot(roomCode: string) {
     const room = this.findRoom(roomCode);
-    return room ? publicState(room.state) : null;
+    return room ? room.state : null;
   }
 
   authenticateModerator(roomCode: string, pin: unknown) {
@@ -571,7 +566,7 @@ export class MeetingStore {
   }
 
   private publish(room: RoomRecord) {
-    this.broadcast(room.state.roomCode, publicState(room.state));
+    this.broadcast(room.state.roomCode, room.state);
     this.schedulePersist();
   }
 

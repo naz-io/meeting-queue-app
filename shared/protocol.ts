@@ -1,4 +1,4 @@
-import type { MeetingState, SessionSettings, SpeakerHistoryItem, UserRole } from './index';
+import type { MeetingState, SessionSettings, SpeakerHistoryItem } from './meeting.ts';
 
 export type QueueDirection = 'up' | 'down' | 'top' | 'bottom';
 export type SpeakerEndReason = SpeakerHistoryItem['endedReason'];
@@ -85,12 +85,6 @@ export interface ClientToServerEvents {
   'meeting-command': (command: MeetingCommand, callback?: (response: CommandResponse) => void) => void;
 }
 
-export interface MeetingConnectionState {
-  connected: boolean;
-  reconnecting: boolean;
-  error: string | null;
-}
-
 export interface PersistedRoom {
   state: MeetingState;
   /** HMAC(PIN, token) → expiry time; the tokens themselves are never stored. */
@@ -107,4 +101,3 @@ export type SettingsPatch = Partial<Pick<SessionSettings,
   'defaultTimerSeconds' | 'bufferSeconds' | 'autoAdvance' | 'warningChimeSeconds' | 'soundEnabled' | 'roomName'
 >>;
 
-export const VALID_VIEWS: UserRole[] = ['participant', 'moderator', 'stage'];

@@ -9,7 +9,7 @@ import type {
   SpeakerBuffer,
   SpeakerHistoryItem,
   UserRole,
-} from '../types';
+} from '../../shared/meeting';
 import type {
   ClientToServerEvents,
   CommandPayloads,
@@ -17,9 +17,9 @@ import type {
   MeetingCommandType,
   ServerToClientEvents,
   SpeakingTimeScope,
-} from '../types/realtime';
+} from '../../shared/protocol';
 import { soundManager } from '../utils/sound';
-import { DEFAULT_ROOM_CODE, parseRoomCode } from '../utils/roomCode';
+import { DEFAULT_ROOM_CODE, parseRoomCode } from '../../shared/roomCode';
 import { totalSpokenSeconds, turnCount } from '../utils/speakingStats';
 
 interface MeetingContextType {

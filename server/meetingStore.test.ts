@@ -231,3 +231,21 @@ test('malformed commands are refused before they touch the room', (t) => {
   }
   assert.deepEqual(room.state, before);
 });
+
+test('per-device fields in older files are not loaded or broadcast', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const dataDirectory = tempDataDirectory(t);
+  const fresh = openRoom(new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory }), 'OLD-ROOM');
+  const oldState = { ...fresh.state, activeView: 'participant', currentUserId: '', currentUserName: '', currentUserAvatar: '' };
+  writeFileSync(path.join(dataDirectory, 'meetings.json'), JSON.stringify({
+    'OLD-ROOM': { state: oldState, moderatorSessions: {}, participantTokens: {} },
+  }));
+  const store = new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory });
+  await store.initialize();
+  const snapshot = store.getSnapshot('OLD-ROOM');
+  assert.ok(snapshot);
+  for (const field of ['activeView', 'currentUserId', 'currentUserName', 'currentUserAvatar']) {
+    assert.equal(field in snapshot, false, field);
+  }
+  assert.equal(snapshot.roomCode, 'OLD-ROOM');
+});

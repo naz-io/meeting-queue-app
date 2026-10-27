@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MeetingStore } from './meetingStore.ts';
 import { openRoom, setup, TEST_PIN } from './testSupport.ts';
-import type { CommandPayloads, MeetingCommandType } from '../src/types/realtime.ts';
+import type { CommandPayloads, MeetingCommandType } from '../shared/protocol.ts';
 
 // End-to-end behaviour of a meeting: permissions, the 250 ms timer loop, and restarts.
 

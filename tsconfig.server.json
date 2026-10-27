@@ -15,5 +15,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["server", "src/types", "src/utils/roomCode.ts", "src/**/*.test.ts"]
+  "include": ["server", "shared", "src/**/*.test.ts"]
 }

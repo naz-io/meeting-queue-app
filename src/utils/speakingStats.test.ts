@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { totalSpokenSeconds, turnCount } from './speakingStats.ts';
-import type { SpeakerHistoryItem } from '../types/index.ts';
+import type { SpeakerHistoryItem } from '../../shared/meeting.ts';
 
 const turn = (participantName: string, seconds: number, participantId?: string): SpeakerHistoryItem => ({
   id: `h_${participantName}_${seconds}`,

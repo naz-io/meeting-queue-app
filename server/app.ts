@@ -3,7 +3,7 @@ import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '../src/types/realtime.ts';
+import type { ClientToServerEvents, ServerToClientEvents } from '../shared/protocol.ts';
 import { MeetingStore } from './meetingStore.ts';
 import { PinAttemptLimiter } from './pinAttempts.ts';
 

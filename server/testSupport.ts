@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { TestContext } from 'node:test';
 import { MeetingStore } from './meetingStore.ts';
-import type { MeetingCommandType } from '../src/types/realtime.ts';
+import type { MeetingCommandType } from '../shared/protocol.ts';
 
 // Shared helpers for the store tests. Not named *.test.ts, so the runner does not execute it.
 

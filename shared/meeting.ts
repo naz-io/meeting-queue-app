@@ -62,8 +62,4 @@ export interface MeetingState {
   speakerBuffer: SpeakerBuffer | null;
   history: SpeakerHistoryItem[];
   settings: SessionSettings;
-  activeView: UserRole;
-  currentUserId: string; // ID of current user using this tab
-  currentUserName: string;
-  currentUserAvatar: string;
 }

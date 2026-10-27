@@ -5,8 +5,8 @@ import { test } from 'node:test';
 import { io, type Socket } from 'socket.io-client';
 import { startServer } from './app.ts';
 import { tempDataDirectory, TEST_PIN } from './testSupport.ts';
-import type { MeetingState } from '../src/types/index.ts';
-import type { ClientToServerEvents, MeetingCommand, ServerToClientEvents } from '../src/types/realtime.ts';
+import type { MeetingState } from '../shared/meeting.ts';
+import type { ClientToServerEvents, MeetingCommand, ServerToClientEvents } from '../shared/protocol.ts';
 
 // Runs the real server on a random port and talks to it over real sockets, like two phones would.
 
