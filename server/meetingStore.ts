@@ -6,7 +6,6 @@ import type { MeetingCommand, PersistedRoom, SettingsPatch } from '../src/types/
 
 const DEFAULT_ROOM_CODE = 'MEET-7892';
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
-const DEFAULT_MODERATOR_PIN = process.env.MODERATOR_PIN || '7892';
 const ROOM_CODE_PATTERN = /^[A-Z0-9-]{4,24}$/;
 // Next to this file, so starting the server from another folder still uses the same data.
 const DEFAULT_DATA_DIRECTORY = path.join(import.meta.dirname, 'data');
@@ -18,6 +17,7 @@ interface RoomRecord extends PersistedRoom {
 type Broadcast = (roomCode: string, state: MeetingState) => void;
 
 interface MeetingStoreOptions {
+  moderatorPin: string;
   dataDirectory?: string;
 }
 
@@ -159,12 +159,14 @@ export class MeetingStore {
   private persistTimer: NodeJS.Timeout | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
   private broadcast: Broadcast;
+  private moderatorPin: string;
   private dataDirectory: string;
   private dataFile: string;
   private tempDataFile: string;
 
-  constructor(broadcast: Broadcast, options: MeetingStoreOptions = {}) {
+  constructor(broadcast: Broadcast, options: MeetingStoreOptions) {
     this.broadcast = broadcast;
+    this.moderatorPin = options.moderatorPin;
     this.dataDirectory = options.dataDirectory ?? DEFAULT_DATA_DIRECTORY;
     this.dataFile = path.join(this.dataDirectory, 'meetings.json');
     this.tempDataFile = path.join(this.dataDirectory, 'meetings.json.tmp');
@@ -207,7 +209,7 @@ export class MeetingStore {
   }
 
   authenticateModerator(roomCode: string, pin: unknown) {
-    if (typeof pin !== 'string' || !sameSecret(pin, DEFAULT_MODERATOR_PIN)) return null;
+    if (typeof pin !== 'string' || !sameSecret(pin, this.moderatorPin)) return null;
     return this.getRoom(roomCode).moderatorToken;
   }
 

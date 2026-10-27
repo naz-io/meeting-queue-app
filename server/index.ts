@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,9 +16,16 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: true, credentials: true },
 });
 
+const DEV_MODERATOR_PIN = '7892';
+const isDevMode = process.argv.includes('--dev');
+const configuredPin = process.env.MODERATOR_PIN?.trim();
+// Never fall back to the published dev PIN outside `npm run dev`.
+const moderatorPin = configuredPin
+  || (isDevMode ? DEV_MODERATOR_PIN : randomInt(0, 1_000_000).toString().padStart(6, '0'));
+
 const store = new MeetingStore((roomCode, state) => {
   io.to(roomCode).emit('meeting-state', state);
-});
+}, { moderatorPin });
 const pinAttempts = new PinAttemptLimiter();
 
 function getLanAddress() {
@@ -141,7 +149,13 @@ app.use((_request, response) => response.sendFile('index.html', { root: distDire
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Meeting Queue server listening on http://localhost:${port}`);
   console.log(`Public URL: ${getPublicBaseUrl()}/?room=MEET-7892`);
-  if (!process.env.MODERATOR_PIN) {
-    console.log('Moderator PIN: 7892 (set MODERATOR_PIN to change it)');
+  if (configuredPin) return;
+  if (isDevMode) {
+    console.log(`Moderator PIN: ${DEV_MODERATOR_PIN} (development default; set MODERATOR_PIN to change it)`);
+  } else {
+    console.log('');
+    console.log(`  Moderator PIN for this run: ${moderatorPin}`);
+    console.log('  It changes on every restart. Set MODERATOR_PIN to keep the same PIN.');
+    console.log('');
   }
 });

@@ -19,7 +19,7 @@ http://192.168.1.25:5173/?room=MEET-7892
 
 Do not open the app as `localhost` when displaying the QR code; phones cannot reach `localhost` on the host computer.
 
-The default moderator PIN is `7892`. Set a private PIN before real use:
+In development (`npm run dev`) the moderator PIN defaults to `7892`. Set a private PIN before real use:
 
 ```bash
 MODERATOR_PIN=your-private-pin npm run dev
@@ -41,6 +41,10 @@ Build the React application, then serve it and Socket.IO from one port:
 npm run build
 MODERATOR_PIN=your-private-pin npm start
 ```
+
+If `MODERATOR_PIN` is not set, `npm start` never uses the development PIN. It generates a random 6-digit PIN and prints it in the Terminal. That PIN changes on every restart, so set `MODERATOR_PIN` for real meetings to keep moderators signed in across restarts.
+
+Five wrong PINs from one device lock it out for 30 seconds, doubling with each further lockout up to 5 minutes.
 
 The server prints usable LAN URLs such as:
 

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "node --watch server/index.ts",
+    "dev:server": "node --watch server/index.ts --dev",
     "dev:client": "vite --host 0.0.0.0",
     "build": "tsc -b && tsc -p tsconfig.server.json --noEmit && vite build",
     "lint": "oxlint",

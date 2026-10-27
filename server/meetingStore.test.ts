@@ -17,7 +17,7 @@ function setup(t: TestContext) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const dataDirectory = tempDataDirectory(t);
   const broadcasts: unknown[] = [];
-  const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)), { dataDirectory });
+  const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)), { moderatorPin: '7892', dataDirectory });
   const room = store.getRoom('TEST-ROOM');
   let sequence = 0;
   const command = (type: MeetingCommandType, payload = {}, participantId = 'moderator', authorized = true) =>
