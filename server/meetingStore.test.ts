@@ -112,3 +112,32 @@ test('flushing during a pending write keeps the latest state', async (t) => {
   const saved = JSON.parse(readFileSync(path.join(dataDirectory, 'meetings.json'), 'utf8'));
   assert.deepEqual(saved['TEST-ROOM'].state.queue.map((item: { participant: { id: string } }) => item.participant.id), ['first', 'second']);
 });
+
+test('queue moves reject unknown directions and keep the order', (t) => {
+  const { room, raise, command } = setup(t);
+  raise('a'); raise('b'); raise('c');
+  const order = () => room.state.queue.map((item) => item.participant.id);
+  const middle = room.state.queue[1].id;
+  assert.equal(command('move-queue-item', { queueItemId: middle, direction: 'sideways' }).ok, false);
+  assert.deepEqual(order(), ['a', 'b', 'c']);
+  assert.equal(command('move-queue-item', { queueItemId: middle, direction: 'top' }).ok, true);
+  assert.deepEqual(order(), ['b', 'a', 'c']);
+});
+
+test('reorder rejects fractional positions', (t) => {
+  const { room, raise, command } = setup(t);
+  raise('a'); raise('b'); raise('c');
+  const order = () => room.state.queue.map((item) => item.participant.id);
+  assert.equal(command('reorder-queue', { startIndex: 0.5, endIndex: 2 }).ok, false);
+  assert.deepEqual(order(), ['a', 'b', 'c']);
+  assert.equal(command('reorder-queue', { startIndex: 0, endIndex: 2 }).ok, true);
+  assert.deepEqual(order(), ['b', 'c', 'a']);
+});
+
+test('turning auto-advance off cancels a pending hand-off', (t) => {
+  const { room, command } = setup(t);
+  command('update-settings', { settings: { autoAdvance: true } });
+  room.autoAdvanceAt = Date.now() + 1000;
+  command('update-settings', { settings: { autoAdvance: false } });
+  assert.equal(room.autoAdvanceAt, undefined);
+});

@@ -266,6 +266,9 @@ export class MeetingStore {
       case 'move-queue-item': {
         const id = stringPayload(payload, 'queueItemId');
         const direction = stringPayload(payload, 'direction');
+        if (!['up', 'down', 'top', 'bottom'].includes(direction)) {
+          return { ok: false, error: 'Unknown queue direction.' };
+        }
         const index = room.state.queue.findIndex((item) => item.id === id);
         if (index < 0) break;
         const [item] = room.state.queue.splice(index, 1);
@@ -279,6 +282,9 @@ export class MeetingStore {
       case 'reorder-queue': {
         const start = numberPayload(payload, 'startIndex', -1);
         const end = numberPayload(payload, 'endIndex', -1);
+        if (!Number.isInteger(start) || !Number.isInteger(end)) {
+          return { ok: false, error: 'Queue positions must be whole numbers.' };
+        }
         if (start < 0 || end < 0 || start >= room.state.queue.length || end >= room.state.queue.length) break;
         const [item] = room.state.queue.splice(start, 1);
         room.state.queue.splice(end, 0, item);
@@ -349,7 +355,11 @@ export class MeetingStore {
         }
         if (typeof patch.bufferSeconds === 'number') next.bufferSeconds = Math.max(0, Math.min(120, patch.bufferSeconds));
         if (typeof patch.warningChimeSeconds === 'number') next.warningChimeSeconds = Math.max(0, Math.min(300, patch.warningChimeSeconds));
-        if (typeof patch.autoAdvance === 'boolean') next.autoAdvance = patch.autoAdvance;
+        if (typeof patch.autoAdvance === 'boolean') {
+          next.autoAdvance = patch.autoAdvance;
+          // Turning auto-advance off also cancels a hand-off already counting down.
+          if (!patch.autoAdvance) room.autoAdvanceAt = undefined;
+        }
         if (typeof patch.soundEnabled === 'boolean') next.soundEnabled = patch.soundEnabled;
         if (typeof patch.roomName === 'string' && patch.roomName.trim()) {
           next.roomName = patch.roomName.trim().slice(0, 80);
