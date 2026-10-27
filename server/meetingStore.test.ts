@@ -12,13 +12,19 @@ function tempDataDirectory(t: TestContext) {
   return directory;
 }
 
+function openRoom(store: MeetingStore, roomCode: string) {
+  const opened = store.openRoom(roomCode);
+  assert.ok(opened.ok, `could not open ${roomCode}`);
+  return opened.room;
+}
+
 function setup(t: TestContext) {
   // Fake timers keep debounced saves from firing; the temp directory keeps real data safe if one does.
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const dataDirectory = tempDataDirectory(t);
   const broadcasts: unknown[] = [];
   const store = new MeetingStore((_code, state) => broadcasts.push(structuredClone(state)), { moderatorPin: '7892', dataDirectory });
-  const room = store.getRoom('TEST-ROOM');
+  const room = openRoom(store, 'TEST-ROOM');
   const moderatorToken = store.authenticateModerator('TEST-ROOM', '7892')!;
   let sequence = 0;
   const command = (type: MeetingCommandType, payload = {}, participantId = 'moderator', authorized = true) =>
@@ -193,15 +199,62 @@ test('sessions survive a restart but not a PIN change', async (t) => {
 test('files with the old single moderator token load and sign everyone out', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const dataDirectory = tempDataDirectory(t);
-  const legacy = new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory }).getRoom('OLD-ROOM');
+  const legacy = openRoom(new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory }), 'OLD-ROOM');
   writeFileSync(path.join(dataDirectory, 'meetings.json'), JSON.stringify({
     'OLD-ROOM': { state: legacy.state, moderatorToken: 'legacy-token', participantTokens: { p1: 't1' } },
   }));
   const store = new MeetingStore(() => {}, { moderatorPin: '7892', dataDirectory });
   await store.initialize();
-  const room = store.getRoom('OLD-ROOM');
+  const room = openRoom(store, 'OLD-ROOM');
   assert.equal(store.isModerator('OLD-ROOM', 'legacy-token'), false);
   assert.deepEqual(room.moderatorSessions, {});
   assert.deepEqual(room.participantTokens, { p1: 't1' });
   assert.equal('moderatorToken' in room, false);
+});
+
+test('room codes are validated and normalised before a room exists', (t) => {
+  const { store } = setup(t);
+  for (const bad of ['ab', 'room code!', '', 'X'.repeat(25), 42, null]) {
+    const opened = store.openRoom(bad);
+    assert.equal(opened.ok, false);
+    assert.equal(!opened.ok && opened.code, 'invalid-room');
+  }
+  const opened = store.openRoom('  team-a ');
+  assert.equal(opened.ok && opened.roomCode, 'TEAM-A');
+});
+
+test('commands and logins never create rooms', (t) => {
+  const { store } = setup(t);
+  const response = store.handleCommand({
+    id: 'c1', roomCode: 'GHOST-ROOM', participantId: 'p', participantToken: 't', type: 'raise-hand',
+  });
+  assert.equal(response.ok, false);
+  assert.equal(store.authenticateModerator('GHOST-ROOM', '7892'), null);
+  assert.equal(store.getSnapshot('GHOST-ROOM'), null);
+  assert.equal(store.openRoom('GHOST-ROOM').ok, true, 'still free to open properly afterwards');
+});
+
+test('the room limit frees up as idle empty rooms age out', async (t) => {
+  const { store, raise } = setup(t);
+  raise('keeps-test-room-busy');
+  for (let index = 2; index <= 50; index++) assert.equal(store.openRoom(`ROOM-${index}`).ok, true);
+  const full = store.openRoom('ROOM-51');
+  assert.equal(!full.ok && full.code, 'room-limit');
+
+  t.mock.timers.tick(24 * 60 * 60 * 1000 - 1);
+  assert.equal(store.openRoom('ROOM-51').ok, false, 'not idle for a full day yet');
+  t.mock.timers.tick(1);
+  assert.equal(store.openRoom('ROOM-51').ok, true);
+  assert.ok(store.getSnapshot('TEST-ROOM'), 'a room with people queued is never pruned');
+  assert.equal(store.getSnapshot('ROOM-2'), null);
+  await store.flush();
+});
+
+test('the queue stops at 200 people', (t) => {
+  const { room, raise } = setup(t);
+  for (let index = 1; index <= 200; index++) assert.equal(raise(`p${index}`).ok, true);
+  const response = raise('p201');
+  assert.equal(response.ok, false);
+  assert.match(response.error ?? '', /queue is full/);
+  assert.equal(room.state.queue.length, 200);
 });

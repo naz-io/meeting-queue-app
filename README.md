@@ -62,6 +62,10 @@ Stop the server from its Terminal window with `Control+C`. Wait for `Meeting ser
 - Stage display: `/?room=MEET-7892&view=stage`
 - Moderator: open the participant URL, select **Moderator**, and enter the server PIN.
 
+Room codes are 4 to 24 letters, numbers or dashes and are not case-sensitive. A link with a malformed code shows an "Invalid room code" screen instead of opening a different room. One server holds up to 50 rooms; rooms with nobody queued or speaking are removed after 24 hours without activity, except `MEET-7892`. Each queue holds up to 200 people.
+
+Moderator sign-ins last 12 hours. Changing `MODERATOR_PIN` and restarting signs out every moderator.
+
 Meeting state is persisted to `server/data/meetings.json` and restored after a server restart. The server owns all queue changes and countdown timers; clients only send validated commands.
 
 Participants must choose a name before their first connection to each room. Their room-specific name and avatar are stored locally and reused when they return from the same device.

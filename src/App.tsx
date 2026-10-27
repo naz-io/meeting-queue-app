@@ -5,6 +5,8 @@ import { ParticipantView } from './components/ParticipantView';
 import { ModeratorView } from './components/ModeratorView';
 import { StageView } from './components/StageView';
 import { JoinRoomView } from './components/JoinRoomView';
+import { InvalidRoomView } from './components/InvalidRoomView';
+import { parseRoomCode } from './utils/roomCode';
 import { ArrowRight, ExternalLink, Info, LogOut, Wifi, WifiOff } from 'lucide-react';
 
 const BACK_GUARD_KEY = 'meetingQueueParticipantGuard';
@@ -155,6 +157,12 @@ const MainContent: React.FC = () => {
 };
 
 export function App() {
+  // A missing ?room= means the default room; a present but malformed one is a broken link.
+  const requestedRoom = new URLSearchParams(window.location.search).get('room');
+  if (requestedRoom !== null && !parseRoomCode(requestedRoom)) {
+    return <InvalidRoomView roomCode={requestedRoom} />;
+  }
+
   return (
     <MeetingProvider>
       <MainContent />

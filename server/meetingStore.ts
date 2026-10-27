@@ -3,18 +3,25 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { MeetingState, QueueItem, SpeakerHistoryItem } from '../src/types/index.ts';
 import type { MeetingCommand, PersistedRoom, SettingsPatch } from '../src/types/realtime.ts';
+import { DEFAULT_ROOM_CODE, parseRoomCode } from '../src/utils/roomCode.ts';
 
-const DEFAULT_ROOM_CODE = 'MEET-7892';
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
 const MODERATOR_SESSION_MS = 12 * 60 * 60 * 1000;
 const MAX_MODERATOR_SESSIONS = 20;
-const ROOM_CODE_PATTERN = /^[A-Z0-9-]{4,24}$/;
+const MAX_ROOMS = 50;
+const MAX_QUEUE_LENGTH = 200;
+const IDLE_ROOM_MS = 24 * 60 * 60 * 1000;
 // Next to this file, so starting the server from another folder still uses the same data.
 const DEFAULT_DATA_DIRECTORY = path.join(import.meta.dirname, 'data');
 
 interface RoomRecord extends PersistedRoom {
+  lastActivityAt: number;
   processedCommands: string[];
 }
+
+type OpenRoomResult =
+  | { ok: true; roomCode: string; room: RoomRecord }
+  | { ok: false; code: 'invalid-room' | 'room-limit'; error: string };
 
 type Broadcast = (roomCode: string, state: MeetingState) => void;
 
@@ -24,11 +31,6 @@ interface MeetingStoreOptions {
 }
 
 const now = () => Date.now();
-
-function safeRoomCode(value: string) {
-  const normalized = value.trim().toUpperCase();
-  return ROOM_CODE_PATTERN.test(normalized) ? normalized : DEFAULT_ROOM_CODE;
-}
 
 function createEmptyState(roomCode: string): MeetingState {
   return {
@@ -185,6 +187,8 @@ export class MeetingStore {
           moderatorSessions: room.moderatorSessions || {},
           participantTokens: room.participantTokens || {},
           autoAdvanceAt: room.autoAdvanceAt,
+          // Older files have no activity time; count from this start so nothing is pruned at once.
+          lastActivityAt: room.lastActivityAt ?? now(),
           processedCommands: [],
         });
       }
@@ -193,33 +197,36 @@ export class MeetingStore {
       if (code !== 'ENOENT') console.warn('Could not load persisted meetings:', error);
     }
 
-    this.getRoom(DEFAULT_ROOM_CODE);
+    this.pruneIdleRooms();
+    if (!this.rooms.has(DEFAULT_ROOM_CODE)) this.createRoom(DEFAULT_ROOM_CODE);
     setInterval(() => this.tick(), 250).unref();
   }
 
-  getRoom(rawRoomCode: string) {
-    const roomCode = safeRoomCode(rawRoomCode);
+  /** The only way rooms are created: validates the code and enforces the room limit. */
+  openRoom(rawRoomCode: unknown): OpenRoomResult {
+    const roomCode = parseRoomCode(rawRoomCode);
+    if (!roomCode) return { ok: false, code: 'invalid-room', error: 'That room code is not valid.' };
     let room = this.rooms.get(roomCode);
     if (!room) {
-      room = {
-        state: createEmptyState(roomCode),
-        moderatorSessions: {},
-        participantTokens: {},
-        processedCommands: [],
-      };
-      this.rooms.set(roomCode, room);
-      this.schedulePersist();
+      this.pruneIdleRooms();
+      if (this.rooms.size >= MAX_ROOMS) {
+        return { ok: false, code: 'room-limit', error: `This meeting server already has ${MAX_ROOMS} rooms. Try again later.` };
+      }
+      room = this.createRoom(roomCode);
     }
-    return room;
+    room.lastActivityAt = now();
+    return { ok: true, roomCode, room };
   }
 
   getSnapshot(roomCode: string) {
-    return publicState(this.getRoom(roomCode).state);
+    const room = this.findRoom(roomCode);
+    return room ? publicState(room.state) : null;
   }
 
   authenticateModerator(roomCode: string, pin: unknown) {
     if (typeof pin !== 'string' || !sameSecret(pin, this.moderatorPin)) return null;
-    const room = this.getRoom(roomCode);
+    const room = this.findRoom(roomCode);
+    if (!room) return null;
     const token = randomToken();
     const sessions = Object.entries(room.moderatorSessions)
       .filter(([, expiresAt]) => expiresAt > now())
@@ -232,7 +239,8 @@ export class MeetingStore {
 
   authorizeParticipant(roomCode: string, participantId: string, participantToken: string) {
     if (!participantId || !participantToken || participantId.length > 120 || participantToken.length > 200) return false;
-    const room = this.getRoom(roomCode);
+    const room = this.findRoom(roomCode);
+    if (!room) return false;
     const existingToken = room.participantTokens[participantId];
     if (existingToken && existingToken !== participantToken) return false;
     if (!existingToken) {
@@ -244,8 +252,41 @@ export class MeetingStore {
 
   isModerator(roomCode: string, token?: unknown) {
     if (typeof token !== 'string' || !token) return false;
-    const expiresAt = this.getRoom(roomCode).moderatorSessions[this.sessionKey(token)];
+    const expiresAt = this.findRoom(roomCode)?.moderatorSessions[this.sessionKey(token)];
     return expiresAt !== undefined && expiresAt > now();
+  }
+
+  /** Looks up an existing room; never creates one. */
+  private findRoom(rawRoomCode: unknown) {
+    const roomCode = parseRoomCode(rawRoomCode);
+    return roomCode ? this.rooms.get(roomCode) : undefined;
+  }
+
+  private createRoom(roomCode: string) {
+    const room: RoomRecord = {
+      state: createEmptyState(roomCode),
+      moderatorSessions: {},
+      participantTokens: {},
+      lastActivityAt: now(),
+      processedCommands: [],
+    };
+    this.rooms.set(roomCode, room);
+    this.schedulePersist();
+    return room;
+  }
+
+  /** Removes rooms nobody has used for a day that have nobody queued or speaking. */
+  private pruneIdleRooms() {
+    const cutoff = now() - IDLE_ROOM_MS;
+    let removed = false;
+    for (const [roomCode, room] of this.rooms) {
+      const busy = room.state.queue.length > 0 || room.state.activeSpeaker || room.state.speakerBuffer;
+      if (roomCode !== DEFAULT_ROOM_CODE && !busy && room.lastActivityAt <= cutoff) {
+        this.rooms.delete(roomCode);
+        removed = true;
+      }
+    }
+    if (removed) this.schedulePersist();
   }
 
   /** Keyed by the PIN, so changing MODERATOR_PIN invalidates every existing session. */
@@ -254,7 +295,8 @@ export class MeetingStore {
   }
 
   handleCommand(command: MeetingCommand) {
-    const room = this.getRoom(command.roomCode);
+    const room = this.findRoom(command.roomCode);
+    if (!room) return { ok: false, error: 'This room is no longer open. Reload the page to rejoin.' };
     if (!this.authorizeParticipant(command.roomCode, command.participantId, command.participantToken)) {
       return { ok: false, error: 'Participant identity could not be verified.' };
     }
@@ -267,12 +309,16 @@ export class MeetingStore {
       return { ok: false, error: 'Moderator authorization required.', code: 'moderator-auth-required' as const };
     }
 
+    room.lastActivityAt = now();
     const payload = command.payload;
     switch (command.type) {
       case 'raise-hand': {
         if (room.state.queue.some((item) => item.participant.id === command.participantId)) break;
         if (room.state.activeSpeaker?.queueItem.participant.id === command.participantId) break;
         if (room.state.speakerBuffer?.queueItem.participant.id === command.participantId) break;
+        if (room.state.queue.length >= MAX_QUEUE_LENGTH) {
+          return { ok: false, error: `The queue is full (${MAX_QUEUE_LENGTH} people). Try again after a few people have spoken.` };
+        }
         const name = stringPayload(payload, 'name', 60) || 'Guest Participant';
         const avatar = stringPayload(payload, 'avatar', 12) || '👤';
         const item: QueueItem = {
@@ -414,7 +460,7 @@ export class MeetingStore {
         break;
     }
 
-    this.publish(command.roomCode, room);
+    this.publish(room);
     return { ok: true };
   }
 
@@ -503,7 +549,7 @@ export class MeetingStore {
 
   private tick() {
     const timestamp = now();
-    for (const [roomCode, room] of this.rooms) {
+    for (const room of this.rooms.values()) {
       let changed = false;
       const buffer = room.state.speakerBuffer;
       if (buffer && !buffer.isPaused && buffer.endsAt) {
@@ -535,12 +581,12 @@ export class MeetingStore {
         changed = true;
       }
 
-      if (changed) this.publish(roomCode, room);
+      if (changed) this.publish(room);
     }
   }
 
-  private publish(roomCode: string, room: RoomRecord) {
-    this.broadcast(safeRoomCode(roomCode), publicState(room.state));
+  private publish(room: RoomRecord) {
+    this.broadcast(room.state.roomCode, publicState(room.state));
     this.schedulePersist();
   }
 
@@ -569,6 +615,7 @@ export class MeetingStore {
         moderatorSessions: room.moderatorSessions,
         participantTokens: room.participantTokens,
         autoAdvanceAt: room.autoAdvanceAt,
+        lastActivityAt: room.lastActivityAt,
       };
     }
     // Snapshot now, but write one at a time so two saves never share the temp file.

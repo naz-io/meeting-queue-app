@@ -101,8 +101,12 @@ await store.initialize();
 
 io.on('connection', (socket) => {
   socket.on('join-room', (request, callback) => {
-    const state = store.getSnapshot(request.roomCode);
-    const roomCode = state.roomCode;
+    const opened = store.openRoom(request.roomCode);
+    if (!opened.ok) {
+      callback({ ok: false, error: opened.error, code: opened.code });
+      return;
+    }
+    const { roomCode } = opened;
     if (!store.authorizeParticipant(roomCode, request.participantId, request.participantToken)) {
       callback({ ok: false, error: 'This participant identity is already in use on another device.' });
       return;
@@ -110,7 +114,7 @@ io.on('connection', (socket) => {
     socket.join(roomCode);
     callback({
       ok: true,
-      state,
+      state: store.getSnapshot(roomCode) ?? undefined,
       publicBaseUrl: getPublicBaseUrl(socket.handshake.headers.origin),
       moderatorAuthorized: store.isModerator(roomCode, request.moderatorToken),
     });

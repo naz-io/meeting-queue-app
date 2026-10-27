@@ -42,6 +42,7 @@ export interface JoinRoomResponse {
   publicBaseUrl?: string;
   moderatorAuthorized?: boolean;
   error?: string;
+  code?: 'invalid-room' | 'room-limit';
 }
 
 export interface ModeratorAuthResponse {
@@ -83,6 +84,8 @@ export interface PersistedRoom {
   moderatorSessions: Record<string, number>;
   participantTokens: Record<string, string>;
   autoAdvanceAt?: number;
+  /** Last join or command; rooms idle for a day with nothing queued are removed. */
+  lastActivityAt?: number;
 }
 
 export type SpeakingTimeScope = 'existing-queue' | 'from-now-on';

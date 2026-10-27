@@ -17,6 +17,7 @@ import type {
   SpeakingTimeScope,
 } from '../types/realtime';
 import { soundManager } from '../utils/sound';
+import { DEFAULT_ROOM_CODE, parseRoomCode } from '../utils/roomCode';
 
 interface MeetingContextType {
   roomCode: string;
@@ -66,7 +67,6 @@ interface MeetingContextType {
   loadDemoData: () => void;
 }
 
-const DEFAULT_ROOM_CODE = 'MEET-7892';
 const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
 const USER_KEY = 'in_person_meeting_user_v2';
 const MODERATOR_TOKEN_KEY = 'in_person_meeting_moderator_token_v2';
@@ -86,8 +86,8 @@ const MeetingContext = createContext<MeetingContextType | undefined>(undefined);
 export const AVATAR_OPTIONS = ['👨‍💼', '👩‍💼', '🦸‍♂️', '👩‍🔬', '👨‍🎨', '👩‍💻', '🚀', '⭐', '🦁', '🦉', '🦊', '🎨'];
 
 function getRoomCode() {
-  const value = new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase();
-  return value && /^[A-Z0-9-]{4,24}$/.test(value) ? value : DEFAULT_ROOM_CODE;
+  // App shows InvalidRoomView for malformed codes, so only a missing ?room= reaches the default.
+  return parseRoomCode(new URLSearchParams(window.location.search).get('room')) ?? DEFAULT_ROOM_CODE;
 }
 
 function getInitialView(): UserRole {
