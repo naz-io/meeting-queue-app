@@ -1,26 +1,19 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { MeetingState, QueueItem, SpeakerHistoryItem } from '../shared/meeting.ts';
-import type { MeetingCommandType, PersistedRoom } from '../shared/protocol.ts';
+import type { MeetingState } from '../shared/meeting.ts';
+import type { CommandResponse, PersistedRoom } from '../shared/protocol.ts';
 import { DEFAULT_ROOM_CODE, parseRoomCode } from '../shared/roomCode.ts';
+import { definitionOf } from './commandHandlers.ts';
 import { parseCommand } from './commands.ts';
+import { activateBufferedSpeaker, createEmptyState, finishSpeaker, now, type RoomRecord } from './room.ts';
 
-const DEFAULT_ROOM_NAME = 'Main Assembly Hall';
 const MODERATOR_SESSION_MS = 12 * 60 * 60 * 1000;
 const MAX_MODERATOR_SESSIONS = 20;
 const MAX_ROOMS = 50;
-const MAX_QUEUE_LENGTH = 200;
 const IDLE_ROOM_MS = 24 * 60 * 60 * 1000;
-/** Everything else needs a moderator token. */
-const PARTICIPANT_COMMANDS: ReadonlySet<MeetingCommandType> = new Set(['raise-hand', 'lower-hand', 'leave-meeting', 'finish-speaker']);
 // Next to this file, so starting the server from another folder still uses the same data.
 const DEFAULT_DATA_DIRECTORY = path.join(import.meta.dirname, 'data');
-
-interface RoomRecord extends PersistedRoom {
-  lastActivityAt: number;
-  processedCommands: string[];
-}
 
 type OpenRoomResult =
   | { ok: true; roomCode: string; room: RoomRecord }
@@ -31,28 +24,6 @@ type Broadcast = (roomCode: string, state: MeetingState) => void;
 interface MeetingStoreOptions {
   moderatorPin: string;
   dataDirectory?: string;
-}
-
-const now = () => Date.now();
-
-function createEmptyState(roomCode: string): MeetingState {
-  return {
-    roomCode,
-    roomName: DEFAULT_ROOM_NAME,
-    queue: [],
-    activeSpeaker: null,
-    speakerBuffer: null,
-    history: [],
-    settings: {
-      defaultTimerSeconds: 120,
-      bufferSeconds: 10,
-      autoAdvance: false,
-      warningChimeSeconds: 10,
-      soundEnabled: true,
-      roomName: DEFAULT_ROOM_NAME,
-      roomCode,
-    },
-  };
 }
 
 /** Per-device fields that MeetingState once carried; files saved before their removal still have them. */
@@ -72,78 +43,6 @@ function sameSecret(candidate: string, secret: string) {
 
 function randomToken() {
   return randomBytes(24).toString('hex');
-}
-
-function finishSpeaker(room: RoomRecord, reason: SpeakerHistoryItem['endedReason'], autoAdvance: boolean) {
-  const active = room.state.activeSpeaker;
-  if (!active) return;
-
-  const historyEntry: SpeakerHistoryItem = {
-    id: `h_${randomBytes(6).toString('hex')}`,
-    participantId: active.queueItem.participant.id,
-    participantName: active.queueItem.participant.name,
-    avatar: active.queueItem.participant.avatar,
-    spokenAt: active.startedAt,
-    actualDurationSeconds: Math.max(0, active.totalDurationSeconds - active.remainingSeconds),
-    allocatedSeconds: active.totalDurationSeconds,
-    endedReason: reason,
-  };
-
-  room.state.activeSpeaker = null;
-  room.autoAdvanceAt = undefined;
-  room.state.history = [historyEntry, ...room.state.history].slice(0, 1000);
-
-  if (autoAdvance && room.state.queue.length > 0) {
-    beginSpeaker(room);
-  }
-}
-
-function beginSpeaker(room: RoomRecord, queueItemId?: string, secondsOverride?: number, skipBuffer = false) {
-  const queue = room.state.queue;
-  const index = queueItemId ? queue.findIndex((item) => item.id === queueItemId) : 0;
-  if (index < 0 || index >= queue.length) return false;
-
-  const [queueItem] = queue.splice(index, 1);
-  const duration = Math.max(1, Math.min(10_800, secondsOverride || queueItem.allocatedSeconds || room.state.settings.defaultTimerSeconds));
-  room.state.activeSpeaker = null;
-
-  if (room.state.settings.bufferSeconds > 0 && !skipBuffer) {
-    const bufferSeconds = room.state.settings.bufferSeconds;
-    room.state.speakerBuffer = {
-      queueItem,
-      allocatedSpeakerSeconds: duration,
-      remainingBufferSeconds: bufferSeconds,
-      totalBufferSeconds: bufferSeconds,
-      isPaused: false,
-      endsAt: now() + bufferSeconds * 1000,
-    };
-  } else {
-    room.state.speakerBuffer = null;
-    room.state.activeSpeaker = {
-      queueItem,
-      startedAt: now(),
-      totalDurationSeconds: duration,
-      remainingSeconds: duration,
-      isPaused: false,
-      endsAt: now() + duration * 1000,
-    };
-  }
-  return true;
-}
-
-function activateBufferedSpeaker(room: RoomRecord) {
-  const buffer = room.state.speakerBuffer;
-  if (!buffer) return;
-  const duration = buffer.allocatedSpeakerSeconds;
-  room.state.speakerBuffer = null;
-  room.state.activeSpeaker = {
-    queueItem: buffer.queueItem,
-    startedAt: now(),
-    totalDurationSeconds: duration,
-    remainingSeconds: duration,
-    isPaused: false,
-    endsAt: now() + duration * 1000,
-  };
 }
 
 export class MeetingStore {
@@ -283,7 +182,7 @@ export class MeetingStore {
   }
 
   /** Takes the raw socket payload; nothing below the parse step sees unvalidated data. */
-  handleCommand(raw: unknown) {
+  handleCommand(raw: unknown): CommandResponse {
     const parsed = parseCommand(raw);
     if (!parsed.ok) return { ok: false, error: parsed.error };
     const command = parsed.command;
@@ -295,236 +194,17 @@ export class MeetingStore {
     if (room.processedCommands.includes(command.id)) return { ok: true };
     room.processedCommands = [...room.processedCommands.slice(-499), command.id];
 
-    const moderatorOnly = !PARTICIPANT_COMMANDS.has(command.type);
+    const definition = definitionOf(command);
     const moderator = this.isModerator(command.roomCode, command.moderatorToken);
-    if (moderatorOnly && !moderator) {
-      return { ok: false, error: 'Moderator authorization required.', code: 'moderator-auth-required' as const };
+    if (definition.access === 'moderator' && !moderator) {
+      return { ok: false, error: 'Moderator authorization required.', code: 'moderator-auth-required' };
     }
 
     room.lastActivityAt = now();
-    switch (command.type) {
-      case 'raise-hand': {
-        if (room.state.queue.some((item) => item.participant.id === command.participantId)) break;
-        if (room.state.activeSpeaker?.queueItem.participant.id === command.participantId) break;
-        if (room.state.speakerBuffer?.queueItem.participant.id === command.participantId) break;
-        if (room.state.queue.length >= MAX_QUEUE_LENGTH) {
-          return { ok: false, error: `The queue is full (${MAX_QUEUE_LENGTH} people). Try again after a few people have spoken.` };
-        }
-        const { name, avatar, note } = command.payload;
-        const item: QueueItem = {
-          id: `q_${randomBytes(6).toString('hex')}`,
-          participant: {
-            id: command.participantId,
-            name: name || 'Guest Participant',
-            avatar: avatar || '👤',
-            joinedAt: now(),
-          },
-          raisedAt: now(),
-          note: note || undefined,
-          allocatedSeconds: room.state.settings.defaultTimerSeconds,
-        };
-        room.state.queue.push(item);
-        break;
-      }
-      case 'lower-hand':
-        room.state.queue = room.state.queue.filter((item) => item.participant.id !== command.participantId);
-        break;
-      case 'leave-meeting':
-        room.state.queue = room.state.queue.filter((item) => item.participant.id !== command.participantId);
-        if (room.state.speakerBuffer?.queueItem.participant.id === command.participantId) {
-          room.state.speakerBuffer = null;
-        }
-        if (room.state.activeSpeaker?.queueItem.participant.id === command.participantId) {
-          finishSpeaker(room, 'manual', false);
-        }
-        break;
-      case 'move-queue-item': {
-        const { queueItemId, direction } = command.payload;
-        const index = room.state.queue.findIndex((item) => item.id === queueItemId);
-        if (index < 0) break;
-        const [item] = room.state.queue.splice(index, 1);
-        const target = direction === 'top' ? 0
-          : direction === 'bottom' ? room.state.queue.length
-            : direction === 'up' ? Math.max(0, index - 1)
-              : Math.min(room.state.queue.length, index + 1);
-        room.state.queue.splice(target, 0, item);
-        break;
-      }
-      case 'reorder-queue': {
-        const { startIndex: start, endIndex: end } = command.payload;
-        if (start < 0 || end < 0 || start >= room.state.queue.length || end >= room.state.queue.length) break;
-        const [item] = room.state.queue.splice(start, 1);
-        room.state.queue.splice(end, 0, item);
-        break;
-      }
-      case 'dismiss-queue-item': {
-        const { queueItemId } = command.payload;
-        room.state.queue = room.state.queue.filter((item) => item.id !== queueItemId);
-        break;
-      }
-      case 'start-speaker':
-        beginSpeaker(
-          room,
-          command.payload.queueItemId || undefined,
-          command.payload.secondsOverride || undefined,
-          command.payload.skipBuffer === true,
-        );
-        break;
-      case 'skip-buffer':
-        activateBufferedSpeaker(room);
-        break;
-      case 'cancel-buffer':
-        if (room.state.speakerBuffer) {
-          room.state.queue.unshift(room.state.speakerBuffer.queueItem);
-          room.state.speakerBuffer = null;
-        }
-        break;
-      case 'pause-timer':
-        this.pauseTimer(room);
-        break;
-      case 'resume-timer':
-        this.resumeTimer(room);
-        break;
-      case 'add-time':
-        this.addTime(room, command.payload.seconds);
-        break;
-      case 'set-speaker-timer':
-        this.setSpeakerTimer(room, command.payload.seconds);
-        break;
-      case 'finish-speaker': {
-        const activeParticipantId = room.state.activeSpeaker?.queueItem.participant.id;
-        if (!moderator && activeParticipantId !== command.participantId) {
-          return { ok: false, error: 'Only the active speaker or moderator can finish this turn.' };
-        }
-        const { reason = 'completed', autoAdvanceNext } = command.payload;
-        finishSpeaker(room, reason, moderator && autoAdvanceNext === true);
-        break;
-      }
-      case 'update-settings': {
-        const { settings: patch, speakingTimeScope: scope } = command.payload;
-        const next = { ...room.state.settings };
-        if (patch.defaultTimerSeconds !== undefined) {
-          next.defaultTimerSeconds = Math.max(1, Math.min(10_800, Math.round(patch.defaultTimerSeconds)));
-          if (scope === 'existing-queue') {
-            room.state.queue = room.state.queue.map((item) => ({
-              ...item,
-              allocatedSeconds: next.defaultTimerSeconds,
-            }));
-          }
-          // A called speaker (including the transition buffer) keeps their allocated time.
-        }
-        if (patch.bufferSeconds !== undefined) next.bufferSeconds = Math.max(0, Math.min(120, patch.bufferSeconds));
-        if (patch.warningChimeSeconds !== undefined) next.warningChimeSeconds = Math.max(0, Math.min(300, patch.warningChimeSeconds));
-        if (patch.autoAdvance !== undefined) {
-          next.autoAdvance = patch.autoAdvance;
-          // Turning auto-advance off also cancels a hand-off already counting down.
-          if (!patch.autoAdvance) room.autoAdvanceAt = undefined;
-        }
-        if (patch.soundEnabled !== undefined) next.soundEnabled = patch.soundEnabled;
-        if (patch.roomName) {
-          next.roomName = patch.roomName;
-          room.state.roomName = next.roomName;
-        }
-        room.state.settings = next;
-        break;
-      }
-      case 'reset-session':
-        room.state.queue = [];
-        room.state.activeSpeaker = null;
-        room.state.speakerBuffer = null;
-        room.state.history = [];
-        room.autoAdvanceAt = undefined;
-        break;
-      case 'load-demo-data':
-        this.loadDemo(room);
-        break;
-    }
-
+    const refusal = definition.apply(room, command, { moderator });
+    if (refusal) return refusal;
     this.publish(room);
     return { ok: true };
-  }
-
-  private pauseTimer(room: RoomRecord) {
-    const timestamp = now();
-    if (room.state.speakerBuffer && !room.state.speakerBuffer.isPaused) {
-      const buffer = room.state.speakerBuffer;
-      buffer.remainingBufferSeconds = Math.max(0, Math.ceil(((buffer.endsAt || timestamp) - timestamp) / 1000));
-      buffer.endsAt = undefined;
-      buffer.isPaused = true;
-    } else if (room.state.activeSpeaker && !room.state.activeSpeaker.isPaused) {
-      const active = room.state.activeSpeaker;
-      active.remainingSeconds = Math.max(0, Math.ceil(((active.endsAt || timestamp) - timestamp) / 1000));
-      active.endsAt = undefined;
-      active.isPaused = true;
-    }
-  }
-
-  private resumeTimer(room: RoomRecord) {
-    if (room.state.speakerBuffer?.isPaused) {
-      room.state.speakerBuffer.isPaused = false;
-      room.state.speakerBuffer.endsAt = now() + room.state.speakerBuffer.remainingBufferSeconds * 1000;
-    } else if (room.state.activeSpeaker?.isPaused) {
-      room.state.activeSpeaker.isPaused = false;
-      room.state.activeSpeaker.endsAt = now() + room.state.activeSpeaker.remainingSeconds * 1000;
-    }
-  }
-
-  private addTime(room: RoomRecord, seconds: number) {
-    const active = room.state.activeSpeaker;
-    if (!active || !Number.isFinite(seconds)) return;
-    active.totalDurationSeconds = Math.max(1, Math.min(10_800, active.totalDurationSeconds + seconds));
-    active.remainingSeconds = Math.max(1, Math.min(10_800, active.remainingSeconds + seconds));
-    if (!active.isPaused) active.endsAt = now() + active.remainingSeconds * 1000;
-    room.autoAdvanceAt = undefined;
-  }
-
-  private setSpeakerTimer(room: RoomRecord, seconds: number) {
-    const active = room.state.activeSpeaker;
-    if (!active || !Number.isFinite(seconds) || seconds <= 0) return;
-    const safe = Math.max(1, Math.min(10_800, seconds));
-    active.totalDurationSeconds = safe;
-    active.remainingSeconds = safe;
-    if (!active.isPaused) active.endsAt = now() + safe * 1000;
-    room.autoAdvanceAt = undefined;
-  }
-
-  private loadDemo(room: RoomRecord) {
-    const stamp = now();
-    const demoParticipants = [
-      ['Dr. Evelyn Reed', '👩‍🔬', 'Project Q3 Budget Allocation', 120],
-      ['Marcus Chen', '👨‍💻', 'AI Pipeline Updates & Architecture', 180],
-      ['Sarah Jenkins', '👩‍💼', 'Customer Feedback Summary', 120],
-      ['Omar Hassan', '👨‍💼', 'Volunteer Schedule for Saturday', 90],
-      ['Priya Patel', '👩‍💻', 'Accessibility Improvements', 120],
-      ['Daniel Kim', '👨‍🎨', 'New Event Signage', 60],
-      ['Sofia Martinez', '🦸‍♀️', 'Community Outreach Update', 150],
-      ['James Wilson', '🦁', 'Facilities Maintenance Request', 90],
-      ['Aisha Thompson', '⭐', 'Youth Program Proposal', 120],
-      ['Noah Williams', '🦉', 'Website Content Refresh', 60],
-      ['Mei Lin', '🚀', 'Digital Check-in Pilot', 180],
-      ['Lucas Brown', '🦊', 'Parking and Transit Feedback', 90],
-      ['Fatima Zahra', '👩‍🔬', 'Sustainability Working Group', 120],
-      ['Ethan Davis', '👨‍💻', 'Audio System Upgrade', 60],
-      ['Leila Morgan', '🎨', 'Public Art Collaboration', 150],
-      ['Gabriel Silva', '👨‍💼', 'Neighborhood Safety Walk', 90],
-      ['Hannah Lee', '👩‍💼', 'New Member Welcome Process', 120],
-      ['Mateo Garcia', '🦸‍♂️', 'Food Drive Logistics', 60],
-      ['Zoe Robinson', '⭐', 'Monthly Newsletter Ideas', 90],
-      ['Ibrahim Ali', '🚀', 'Open Questions and Follow-ups', 120],
-    ] as const;
-
-    room.state.queue = demoParticipants.map(([name, avatar, note, seconds], index) => ({
-      id: `demo_q_${index + 1}`,
-      participant: {
-        id: `demo_p_${index + 1}`,
-        name,
-        avatar,
-        joinedAt: stamp - (demoParticipants.length - index) * 60_000,
-      },
-      raisedAt: stamp - (demoParticipants.length - index) * 60_000,
-      note,
-      allocatedSeconds: seconds,
-    }));
   }
 
   private tick() {
