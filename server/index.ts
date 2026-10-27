@@ -53,16 +53,10 @@ function getPublicBaseUrl(origin?: string) {
 
 let isShuttingDown = false;
 
-const shutdown = (signal: string) => {
+const shutdown = async (signal: string) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\n${signal} received. Closing the meeting server…`);
-
-  io.close();
-  httpServer.close(() => {
-    console.log('Meeting server stopped. Port released.');
-    process.exit(0);
-  });
 
   const forceExitTimer = setTimeout(() => {
     console.error('Server shutdown timed out; forcing exit.');
@@ -70,10 +64,19 @@ const shutdown = (signal: string) => {
     process.exit(1);
   }, 5000);
   forceExitTimer.unref();
+
+  // Stop accepting commands, then save anything still waiting for the debounced write.
+  io.close();
+  await store.flush();
+  console.log('Meeting state saved.');
+  httpServer.close(() => {
+    console.log('Meeting server stopped. Port released.');
+    process.exit(0);
+  });
 };
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
 httpServer.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {

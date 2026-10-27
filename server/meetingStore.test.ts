@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -31,7 +31,7 @@ function setup(t: TestContext) {
   const change = (seconds: number, scope?: string) => command('update-settings', {
     settings: { defaultTimerSeconds: seconds }, speakingTimeScope: scope,
   });
-  return { room, command, raise, change, broadcasts };
+  return { store, room, command, raise, change, broadcasts, dataDirectory };
 }
 
 test('existing queue changes preserve order and identity and reach subscribers', (t) => {
@@ -93,4 +93,22 @@ test('empty queues, bounds, invalid inputs and moderator authorization', (t) => 
     settings: { defaultTimerSeconds: 60 }, speakingTimeScope: 'existing-queue',
   }, 'guest', false).ok, false);
   assert.deepEqual(room.state, previous);
+});
+
+test('flush writes pending changes without waiting for the debounce', async (t) => {
+  const { store, raise, dataDirectory } = setup(t);
+  raise('last-second');
+  await store.flush();
+  const saved = JSON.parse(readFileSync(path.join(dataDirectory, 'meetings.json'), 'utf8'));
+  assert.equal(saved['TEST-ROOM'].state.queue[0].participant.id, 'last-second');
+});
+
+test('flushing during a pending write keeps the latest state', async (t) => {
+  const { store, raise, dataDirectory } = setup(t);
+  raise('first');
+  const firstFlush = store.flush();
+  raise('second');
+  await Promise.all([firstFlush, store.flush()]);
+  const saved = JSON.parse(readFileSync(path.join(dataDirectory, 'meetings.json'), 'utf8'));
+  assert.deepEqual(saved['TEST-ROOM'].state.queue.map((item: { participant: { id: string } }) => item.participant.id), ['first', 'second']);
 });

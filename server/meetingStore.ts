@@ -150,6 +150,7 @@ function activateBufferedSpeaker(room: RoomRecord) {
 export class MeetingStore {
   private rooms = new Map<string, RoomRecord>();
   private persistTimer: NodeJS.Timeout | null = null;
+  private writeQueue: Promise<void> = Promise.resolve();
   private broadcast: Broadcast;
   private dataDirectory: string;
   private dataFile: string;
@@ -498,12 +499,24 @@ export class MeetingStore {
     this.schedulePersist();
   }
 
-  private schedulePersist() {
-    if (this.persistTimer) clearTimeout(this.persistTimer);
-    this.persistTimer = setTimeout(() => void this.persist(), 500);
+  /** Writes any pending changes immediately; call before the process exits. */
+  async flush() {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    await this.persist();
   }
 
-  private async persist() {
+  private schedulePersist() {
+    if (this.persistTimer) clearTimeout(this.persistTimer);
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.persist();
+    }, 500);
+  }
+
+  private persist() {
     const data: Record<string, PersistedRoom> = {};
     for (const [code, room] of this.rooms) {
       data[code] = {
@@ -513,9 +526,16 @@ export class MeetingStore {
         autoAdvanceAt: room.autoAdvanceAt,
       };
     }
+    // Snapshot now, but write one at a time so two saves never share the temp file.
+    const json = JSON.stringify(data, null, 2);
+    this.writeQueue = this.writeQueue.then(() => this.writeToDisk(json));
+    return this.writeQueue;
+  }
+
+  private async writeToDisk(json: string) {
     try {
       await mkdir(this.dataDirectory, { recursive: true });
-      await writeFile(this.tempDataFile, JSON.stringify(data, null, 2), 'utf8');
+      await writeFile(this.tempDataFile, json, 'utf8');
       await rename(this.tempDataFile, this.dataFile);
     } catch (error) {
       console.error('Could not persist meeting state:', error);
